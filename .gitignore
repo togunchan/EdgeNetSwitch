@@ -1,0 +1,31 @@
+# Build outputs
+build/
+out/
+*.o
+*.a
+*.so
+*.ko
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Logs
+*.log
+
+# Yocto build directories
+tmp/
+sstate-cache/
+cache/
+downloads/
+
+# QEMU images
+*.img
+*.qcow2
+Image
+rootfs.cpio.gz
+
+# macOS
+.DS_Store
