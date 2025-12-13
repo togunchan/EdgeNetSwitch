@@ -23,6 +23,21 @@ target_include_directories(Logger
 
 target_compile_features(Logger PUBLIC cxx_std_20)
 
+
+#-------------------------------------------------------
+# MessagingBus Module
+# -------------------------------------------------------
+add_library(MessagingBus
+    src/messaging/MessagingBus.cpp
+)
+
+target_include_directories(MessagingBus
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(MessagingBus PUBLIC cxx_std_20)
+
 # -------------------------------------------------------
 # Catch2 Submodule
 # -------------------------------------------------------
@@ -52,4 +67,25 @@ if(BUILD_TESTING)
 
     target_include_directories(LoggerTests PRIVATE include)
     add_test(NAME LoggerTests COMMAND LoggerTests)
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for MessagingBus
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(MessagingBusTests
+        tests/messagingbus_tests.cpp
+    )
+
+    target_link_libraries(MessagingBusTests
+        PRIVATE
+            MessagingBus
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(MessagingBusTests PRIVATE include)
+
+    add_test(NAME MessagingBusTests COMMAND MessagingBusTests)
+
 endif()
