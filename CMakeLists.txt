@@ -139,3 +139,24 @@ if(BUILD_TESTING)
     add_test(NAME MessagingBusTests COMMAND MessagingBusTests)
 
 endif()
+
+# -------------------------------------------------------
+# Unit Tests for ConfigLoader
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(ConfigTests
+        tests/config_tests.cpp
+    )
+
+    target_link_libraries(ConfigTests
+        PRIVATE
+            Config
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(ConfigTests PRIVATE include)
+
+    add_test(NAME ConfigTests COMMAND ConfigTests)
+
+endif()

@@ -87,10 +87,23 @@ namespace edgenetswitch
 
         Config cfg;
 
-        cfg.log.level = j.value("log", json{}).value("level", "info");
-        cfg.log.file = j.value("log", json{}).value("file", "edgenetswitch.log");
+        auto objectOrEmpty = [](const json &parent, const std::string &key) -> json
+        {
+            auto it = parent.find(key);
+            if (it != parent.end() && it->is_object())
+            {
+                return *it;
+            }
+            return json::object();
+        };
 
-        cfg.daemon.tick_ms = j.value("daemon", json{}).value("tick_ms", 100);
+        json logJson = objectOrEmpty(j, "log");
+        json daemonJson = objectOrEmpty(j, "daemon");
+
+        cfg.log.level = logJson.value("level", "info");
+        cfg.log.file = logJson.value("file", "edgenetswitch.log");
+
+        cfg.daemon.tick_ms = daemonJson.value("tick_ms", 100);
 
         return cfg;
     }
