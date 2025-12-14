@@ -39,6 +39,26 @@ target_include_directories(MessagingBus
 target_compile_features(MessagingBus PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# Daemon Executable
+# -------------------------------------------------------
+add_executable(EdgeNetSwitchDaemon
+    src/daemon/main.cpp
+)
+
+target_link_libraries(EdgeNetSwitchDaemon
+    PRIVATE
+        Logger
+        MessagingBus
+)
+
+target_include_directories(EdgeNetSwitchDaemon
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(EdgeNetSwitchDaemon PRIVATE cxx_std_20)
+
+# -------------------------------------------------------
 # Catch2 Submodule
 # -------------------------------------------------------
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Catch2/CMakeLists.txt")
