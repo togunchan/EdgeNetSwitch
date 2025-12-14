@@ -20,6 +20,8 @@ public:
     static void shutdown();
     ~Logger();
 
+    static LogLevel parseLevel(const std::string &levelStr);
+
     static void debug(const std::string &msg);
     static void info(const std::string &msg);
     static void warn(const std::string &msg);

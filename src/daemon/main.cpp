@@ -40,10 +40,7 @@ int main()
 
     Config cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
 
-    Logger::init(cfg.log.level == "debug" ? LogLevel::Debug : cfg.log.level == "warn" ? LogLevel::Warning
-                                                          : cfg.log.level == "error"  ? LogLevel::Error
-                                                                                      : LogLevel::Info,
-                 cfg.log.file);
+    Logger::init(Logger::parseLevel(cfg.log.level), cfg.log.file);
     Logger::info("EdgeNetSwitch daemon starting...");
 
     MessagingBus bus;

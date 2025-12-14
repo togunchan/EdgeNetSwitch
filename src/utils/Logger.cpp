@@ -32,6 +32,25 @@ void Logger::shutdown()
     instance_.reset();
 }
 
+LogLevel Logger::parseLevel(const std::string &levelStr)
+{
+    std::string s = levelStr;
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c)
+                   { return std::tolower(c); });
+
+    if (s == "debug")
+        return LogLevel::Debug;
+    if (s == "warn" || s == "warning")
+        return LogLevel::Warning;
+    if (s == "error")
+        return LogLevel::Error;
+    if (s == "info")
+        return LogLevel::Info;
+
+    return LogLevel::Info;
+}
+
 void Logger::debug(const std::string &msg)
 {
     if (instance_)
