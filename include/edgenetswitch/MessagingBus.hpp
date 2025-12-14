@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <cstdint>
+#include <variant>
 
 namespace edgenetswitch
 {
@@ -15,13 +16,23 @@ namespace edgenetswitch
         ConfigLoaded,
         RouteUpdated,
         TelemetryTick,
-        HealthStatus
+        HealthStatus,
+        Telemetry
+    };
+
+    struct TelemetryData
+    {
+        std::uint64_t uptime_ms;
+        std::uint64_t tick_count;
+        std::uint64_t timestamp_ms;
     };
 
     struct Message
     {
         MessageType type;
-        std::uint64_t timestamp;
+        std::uint64_t timestamp_ms;
+        using Payload = std::variant<std::monostate, TelemetryData>;
+        Payload payload{};
     };
 
     class MessagingBus

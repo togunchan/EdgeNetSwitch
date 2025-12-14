@@ -58,6 +58,26 @@ target_link_libraries(Config
 target_compile_features(Config PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# Telemetry Module
+# -------------------------------------------------------
+add_library(Telemetry
+    src/telemetry/Telemetry.cpp
+)
+
+target_include_directories(Telemetry
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(Telemetry
+    PUBLIC
+        MessagingBus
+        Config
+)
+
+target_compile_features(Telemetry PUBLIC cxx_std_20)
+
+# -------------------------------------------------------
 # Daemon Executable
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
@@ -69,6 +89,7 @@ target_link_libraries(EdgeNetSwitchDaemon
         Logger
         MessagingBus
         Config
+        Telemetry
 )
 
 target_include_directories(EdgeNetSwitchDaemon
@@ -158,5 +179,28 @@ if(BUILD_TESTING)
     target_include_directories(ConfigTests PRIVATE include)
 
     add_test(NAME ConfigTests COMMAND ConfigTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for Telemetry
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(TelemetryTests
+        tests/telemetry_tests.cpp
+    )
+
+    target_link_libraries(TelemetryTests
+        PRIVATE
+            Telemetry
+            MessagingBus
+            Config
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(TelemetryTests PRIVATE include)
+
+    add_test(NAME TelemetryTests COMMAND TelemetryTests)
 
 endif()
