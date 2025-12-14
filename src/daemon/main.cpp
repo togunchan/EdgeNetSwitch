@@ -1,6 +1,7 @@
 #include "edgenetswitch/Logger.hpp"
 #include "edgenetswitch/MessagingBus.hpp"
 #include "edgenetswitch/Config.hpp"
+#include "edgenetswitch/Telemetry.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -44,6 +45,7 @@ int main()
     Logger::info("EdgeNetSwitch daemon starting...");
 
     MessagingBus bus;
+    Telemetry telemetry(bus, cfg);
 
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
@@ -51,11 +53,20 @@ int main()
     bus.subscribe(MessageType::SystemShutdown, [&](const Message &msg)
                   { Logger::info("SystemShutdown received by daemon"); });
 
+    bus.subscribe(MessageType::Telemetry, [&](const Message &m)
+                  {
+    const auto* data = std::get_if<TelemetryData>(&m.payload);
+    if (data) {
+        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) +
+                      " tick_count=" + std::to_string(data->tick_count));
+    } });
+
     bus.publish({MessageType::SystemStart, nowMs()});
 
     // keep the process alive until a stop is requested.
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
+        telemetry.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
