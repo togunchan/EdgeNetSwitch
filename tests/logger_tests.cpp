@@ -30,3 +30,12 @@ TEST_CASE("Logger writes basic messages", "[logger]")
     REQUIRE(content.find("warn msg") != std::string::npos);
     REQUIRE(content.find("error msg") != std::string::npos);
 }
+
+TEST_CASE("Logger parses log level strings correctly", "[Logger]")
+{
+    REQUIRE(Logger::parseLevel("debug") == LogLevel::Debug);
+    REQUIRE(Logger::parseLevel("INFO") == LogLevel::Info);
+    REQUIRE(Logger::parseLevel("Warn") == LogLevel::Warning);
+    REQUIRE(Logger::parseLevel("error") == LogLevel::Error);
+    REQUIRE(Logger::parseLevel("unknown") == LogLevel::Info);
+}
