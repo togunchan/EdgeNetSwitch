@@ -16,7 +16,7 @@ enum class LogLevel
 class Logger
 {
 public:
-    static void init(LogLevel level, const std::string &msg);
+    static void init(LogLevel level, const std::string &filePath);
     static void shutdown();
     ~Logger();
 

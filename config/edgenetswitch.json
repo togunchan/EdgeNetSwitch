@@ -1,0 +1,9 @@
+{
+  "log": {
+    "level": "info",
+    "file": "edgenetswitch.log"
+  },
+  "daemon": {
+    "tick_ms": 100
+  }
+}

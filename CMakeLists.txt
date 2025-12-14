@@ -39,6 +39,25 @@ target_include_directories(MessagingBus
 target_compile_features(MessagingBus PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# Config Module
+# -------------------------------------------------------
+add_library(Config
+    src/utils/Config.cpp
+)
+
+target_include_directories(Config
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(Config
+    PUBLIC
+        nlohmann_json::nlohmann_json
+)
+
+target_compile_features(Config PUBLIC cxx_std_20)
+
+# -------------------------------------------------------
 # Daemon Executable
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
@@ -49,6 +68,7 @@ target_link_libraries(EdgeNetSwitchDaemon
     PRIVATE
         Logger
         MessagingBus
+        Config
 )
 
 target_include_directories(EdgeNetSwitchDaemon
@@ -67,6 +87,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Catch2/CMakeLists.txt")
     add_subdirectory(third_party/Catch2)
 else()
     message(FATAL_ERROR "Catch2 submodule not found! Run: git submodule update --init --recursive")
+endif()
+
+# -------------------------------------------------------
+# nlohmann_json Submodule
+# -------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/nlohmann_json/CMakeLists.txt")
+    message(STATUS "Using nlohmann_json submodule")
+    add_subdirectory(third_party/nlohmann_json)
+else()
+    message(FATAL_ERROR "nlohmann_json submodule not found! Run: git submodule update --init --recursive")
 endif()
 
 # -------------------------------------------------------

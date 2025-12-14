@@ -1,5 +1,6 @@
 #include "edgenetswitch/Logger.hpp"
 #include "edgenetswitch/MessagingBus.hpp"
+#include "edgenetswitch/Config.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -37,7 +38,12 @@ int main()
 {
     installSignalHandlers();
 
-    Logger::init(LogLevel::Info, "edgenetswitch.log");
+    Config cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
+
+    Logger::init(cfg.log.level == "debug" ? LogLevel::Debug : cfg.log.level == "warn" ? LogLevel::Warning
+                                                          : cfg.log.level == "error"  ? LogLevel::Error
+                                                                                      : LogLevel::Info,
+                 cfg.log.file);
     Logger::info("EdgeNetSwitch daemon starting...");
 
     MessagingBus bus;
@@ -53,7 +59,7 @@ int main()
     // keep the process alive until a stop is requested.
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
     Logger::warn("Stop requested. Shutting down...");
