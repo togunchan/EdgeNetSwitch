@@ -78,6 +78,20 @@ target_link_libraries(Telemetry
 target_compile_features(Telemetry PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# HealthMonitor Module
+# -------------------------------------------------------
+add_library(HealthMonitor
+    src/health/HealthMonitor.cpp
+)
+
+target_include_directories(HealthMonitor
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(HealthMonitor PUBLIC cxx_std_20)
+
+# -------------------------------------------------------
 # Daemon Executable
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
@@ -90,6 +104,7 @@ target_link_libraries(EdgeNetSwitchDaemon
         MessagingBus
         Config
         Telemetry
+        HealthMonitor
 )
 
 target_include_directories(EdgeNetSwitchDaemon
@@ -202,5 +217,31 @@ if(BUILD_TESTING)
     target_include_directories(TelemetryTests PRIVATE include)
 
     add_test(NAME TelemetryTests COMMAND TelemetryTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for HealthMonitor
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(HealthMonitorTests
+        tests/health_monitor_tests.cpp
+    )
+
+    target_link_libraries(HealthMonitorTests
+        PRIVATE
+            HealthMonitor
+            MessagingBus
+            Logger
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(HealthMonitorTests
+        PRIVATE
+            include
+    )
+
+    add_test(NAME HealthMonitorTests COMMAND HealthMonitorTests)
 
 endif()

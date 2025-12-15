@@ -17,7 +17,8 @@ namespace edgenetswitch
         RouteUpdated,
         TelemetryTick,
         HealthStatus,
-        Telemetry
+        Telemetry,
+        Health
     };
 
     struct TelemetryData
@@ -27,11 +28,18 @@ namespace edgenetswitch
         std::uint64_t timestamp_ms;
     };
 
+    struct HealthStatus
+    {
+        std::uint64_t uptime_ms{};
+        std::uint64_t last_heartbeat_ms{};
+        bool is_alive{true};
+    };
+
     struct Message
     {
         MessageType type;
         std::uint64_t timestamp_ms;
-        using Payload = std::variant<std::monostate, TelemetryData>;
+        using Payload = std::variant<std::monostate, TelemetryData, HealthStatus>;
         Payload payload{};
     };
 
