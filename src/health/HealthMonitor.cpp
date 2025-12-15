@@ -34,7 +34,7 @@ namespace edgenetswitch
         status.is_alive = (nowMs() - last_heartbeat_ms_) <= timeout_ms_;
 
         Message msg{};
-        msg.type = MessageType::Health;
+        msg.type = MessageType::HealthStatus;
         msg.timestamp_ms = status.last_heartbeat_ms;
         msg.payload = status;
 
