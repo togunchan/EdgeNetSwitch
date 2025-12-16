@@ -2,6 +2,7 @@
 #include "edgenetswitch/MessagingBus.hpp"
 #include "edgenetswitch/Config.hpp"
 #include "edgenetswitch/Telemetry.hpp"
+#include "edgenetswitch/HealthMonitor.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -46,6 +47,7 @@ int main()
 
     MessagingBus bus;
     Telemetry telemetry(bus, cfg);
+    HealthMonitor health(bus, 500);
 
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
@@ -53,13 +55,25 @@ int main()
     bus.subscribe(MessageType::SystemShutdown, [&](const Message &msg)
                   { Logger::info("SystemShutdown received by daemon"); });
 
-    bus.subscribe(MessageType::Telemetry, [&](const Message &m)
+    bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-    const auto* data = std::get_if<TelemetryData>(&m.payload);
-    if (data) {
-        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) +
-                      " tick_count=" + std::to_string(data->tick_count));
-    } });
+                    health.onHeartbeat();
+
+                    const auto* data = std::get_if<TelemetryData>(&msg.payload);
+                    if (data) {
+                        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count)); 
+                    } });
+
+    bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
+                  {
+                        const auto* hs = std::get_if<HealthStatus>(&msg.payload);
+                        if (!hs) return;
+
+                        if (!hs->is_alive) {
+                            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
+                        } else {
+                            Logger::debug("HealthStatus: alive"); 
+                        } });
 
     bus.publish({MessageType::SystemStart, nowMs()});
 
@@ -67,6 +81,7 @@ int main()
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
         telemetry.onTick();
+        health.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
