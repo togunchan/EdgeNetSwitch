@@ -8,7 +8,8 @@
                 "${workspaceFolder}/third_party/Catch2/src",
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1",
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include",
-                "${workspaceFolder}/include"
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/build/third_party/Catch2/generated-includes"
             ],
             "defines": [],
             "cStandard": "c11",

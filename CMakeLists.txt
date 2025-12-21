@@ -245,3 +245,25 @@ if(BUILD_TESTING)
     add_test(NAME HealthMonitorTests COMMAND HealthMonitorTests)
 
 endif()
+
+# -------------------------------------------------------
+# Unit Tests for HealthMonitor transitions
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(HealthMonitorTransitionTests
+        tests/health_monitor_transition_tests.cpp
+    )
+
+    target_link_libraries(HealthMonitorTransitionTests
+        PRIVATE
+            HealthMonitor
+            MessagingBus
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(HealthMonitorTransitionTests PRIVATE include)
+
+    add_test(NAME HealthMonitorTransitionTests COMMAND HealthMonitorTransitionTests)
+
+endif()

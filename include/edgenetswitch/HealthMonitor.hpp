@@ -4,6 +4,7 @@
 #include "edgenetswitch/Config.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace edgenetswitch
 {
@@ -20,5 +21,6 @@ namespace edgenetswitch
         std::uint64_t timeout_ms_;
         std::uint64_t last_heartbeat_ms_;
         std::uint64_t start_time_ms_;
+        std::optional<bool> last_alive_state_;
     };
 } // namespace edgenetswitch

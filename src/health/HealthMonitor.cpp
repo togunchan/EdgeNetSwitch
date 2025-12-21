@@ -28,17 +28,24 @@ namespace edgenetswitch
 
     void HealthMonitor::onTick()
     {
-        HealthStatus status{};
-        status.uptime_ms = nowMs() - start_time_ms_;
-        status.last_heartbeat_ms = last_heartbeat_ms_;
-        status.is_alive = (nowMs() - last_heartbeat_ms_) <= timeout_ms_;
+        const auto now = nowMs();
+        const bool current_alive = (now - last_heartbeat_ms_) <= timeout_ms_;
 
-        Message msg{};
-        msg.type = MessageType::HealthStatus;
-        msg.timestamp_ms = status.last_heartbeat_ms;
-        msg.payload = status;
+        if (!last_alive_state_.has_value() || current_alive != *last_alive_state_)
+        {
+            HealthStatus status{};
+            status.uptime_ms = now - start_time_ms_;
+            status.last_heartbeat_ms = last_heartbeat_ms_;
+            status.is_alive = current_alive;
 
-        bus_.publish(msg);
+            Message msg{};
+            msg.type = MessageType::HealthStatus;
+            msg.timestamp_ms = status.last_heartbeat_ms;
+            msg.payload = status;
+
+            bus_.publish(msg);
+            last_alive_state_ = current_alive;
+        }
     }
 
 } // namespace edgenetswitch
