@@ -2,6 +2,7 @@
 
 #include "edgenetswitch/MessagingBus.hpp"
 #include "edgenetswitch/Config.hpp"
+#include "edgenetswitch/RuntimeMetrics.hpp"
 
 #include <cstdint>
 
@@ -13,6 +14,8 @@ namespace edgenetswitch
         Telemetry(MessagingBus &bus, const Config &cfg);
 
         void onTick();
+
+        RuntimeMetrics snapshot() const;
 
     private:
         MessagingBus &bus_;

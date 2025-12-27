@@ -34,4 +34,11 @@ namespace edgenetswitch
 
         bus_.publish(msg);
     }
+
+    RuntimeMetrics Telemetry::snapshot() const
+    {
+        return RuntimeMetrics{
+            .uptime_ms = nowMs() - start_time_ms_,
+            .tick_count = tick_count_};
+    }
 } // namespace edgenetswitch
