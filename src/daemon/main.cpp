@@ -73,7 +73,21 @@ int main(int argc, char *argv[])
     if (argc > 1 && std::string(argv[1]) == "status")
     {
         Logger::init(LogLevel::Info, "");
-        Logger::info("CLI: status command invoked");
+
+        // Temporary local snapshot
+        RuntimeStatus status{
+            .metrics = RuntimeMetrics{
+                .uptime_ms = 0,
+                .tick_count = 0},
+            .state = "UNKNOWN"};
+
+        Logger::info("Runtime Status");
+        Logger::info("--------------");
+        Logger::info("State      : " + status.state);
+        Logger::info("Uptime (ms): " + std::to_string(status.metrics.uptime_ms));
+        Logger::info("Tick Count : " + std::to_string(status.metrics.tick_count));
+
+        Logger::shutdown();
         return 0;
     }
     installSignalHandlers();
