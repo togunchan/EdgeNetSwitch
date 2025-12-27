@@ -68,8 +68,14 @@ namespace
     }
 } // namespace
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc > 1 && std::string(argv[1]) == "status")
+    {
+        Logger::init(LogLevel::Info, "");
+        Logger::info("CLI: status command invoked");
+        return 0;
+    }
     installSignalHandlers();
 
     Config cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
