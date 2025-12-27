@@ -3,6 +3,7 @@
 #include "edgenetswitch/Config.hpp"
 #include "edgenetswitch/Telemetry.hpp"
 #include "edgenetswitch/HealthMonitor.hpp"
+#include "edgenetswitch/RuntimeStatus.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -34,6 +35,37 @@ namespace
         return static_cast<std::uint64_t>(
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     }
+
+    enum class RuntimeState
+    {
+        Booting,
+        Running,
+        Stopping
+    };
+
+    static std::string stateToString(RuntimeState s)
+    {
+        switch (s)
+        {
+        case RuntimeState::Booting:
+            return "BOOTING";
+            break;
+        case RuntimeState::Running:
+            return "RUNNING";
+            break;
+        case RuntimeState::Stopping:
+            return "STOPPING";
+            break;
+
+        default:
+            return "UNKNOWN";
+        }
+    }
+
+    static RuntimeStatus buildRuntimeStatus(const Telemetry &telemetry, RuntimeState state)
+    {
+        return RuntimeStatus{.metrics = telemetry.snapshot(), .state = stateToString(state)};
+    }
 } // namespace
 
 int main()
@@ -46,6 +78,7 @@ int main()
     Logger::info("EdgeNetSwitch daemon starting...");
 
     MessagingBus bus;
+    RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor health(bus, 500);
 
@@ -76,6 +109,7 @@ int main()
                         } });
 
     bus.publish({MessageType::SystemStart, nowMs()});
+    runtimeState = RuntimeState::Running;
 
     // keep the process alive until a stop is requested.
     while (!g_stopRequested.load(std::memory_order_relaxed))
@@ -85,8 +119,14 @@ int main()
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
+    runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
 
+    const auto status = buildRuntimeStatus(telemetry, runtimeState);
+    Logger::info(
+        "RuntimeStatus: state=" + status.state +
+        " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
+        " tick_count=" + std::to_string(status.metrics.tick_count));
     bus.publish({MessageType::SystemShutdown, nowMs()});
 
     Logger::info("EdgeNetSwitch daemon stopped.");
