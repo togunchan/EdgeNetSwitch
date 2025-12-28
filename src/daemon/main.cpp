@@ -159,6 +159,41 @@ namespace
         }
     }
 
+    bool runStatusCLI()
+    {
+        int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0)
+        {
+            Logger::error("CLI: failed to create socket");
+            return false;
+        }
+
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, CONTROL_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+        if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
+        {
+            Logger::error("CLI: connect() failed (is daemon running?)");
+            ::close(fd);
+            return false;
+        }
+
+        const char *cmd = "status";
+        ::write(fd, cmd, std::strlen(cmd));
+
+        char buffer[256]{};
+        ssize_t n = ::read(fd, buffer, sizeof(buffer) - 1);
+
+        if (n > 0)
+            Logger::info(std::string(buffer, n));
+        else
+            Logger::warn("CLI: empty response");
+
+        ::close(fd);
+        return true;
+    }
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -167,18 +202,10 @@ int main(int argc, char *argv[])
     {
         Logger::init(LogLevel::Info, "");
 
-        // Temporary local snapshot
-        RuntimeStatus status{
-            .metrics = RuntimeMetrics{
-                .uptime_ms = 0,
-                .tick_count = 0},
-            .state = "UNKNOWN"};
-
-        Logger::info("Runtime Status");
-        Logger::info("--------------");
-        Logger::info("State      : " + status.state);
-        Logger::info("Uptime (ms): " + std::to_string(status.metrics.uptime_ms));
-        Logger::info("Tick Count : " + std::to_string(status.metrics.tick_count));
+        if (!runStatusCLI())
+        {
+            Logger::error("Failed to retrieve runtime status (is daemon running?)");
+        }
 
         Logger::shutdown();
         return 0;
