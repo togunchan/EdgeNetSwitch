@@ -1,115 +1,143 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform focused on a deterministic, testable user-space runtime. EdgeNetSwitch models how industrial edge firmware is structured before adding real hardware, networking, or Yocto integration.
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.1.0.
 
 ## Why this exists
-- Embedded and networking teams often lack safe, repeatable environments to prototype daemon architectures before hardware arrives. EdgeNetSwitch provides that target.
-- The platform demonstrates how to structure a long-lived, event-driven control plane with clean separation between logging, configuration, telemetry, and health without tight coupling.
-- Everything is designed to be observable and unit-testable so behavior can be validated the same way you would validate production firmware.
+- Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
+- Focuses on deterministic daemon design with built-in observability so runtime behavior is explainable.
+- Keeps architecture explicit and testable, enabling confident iteration before hardware bring-up.
 
-## Scope: v1.0 (runtime core only)
-- Long-lived daemon with deterministic tick loop.
-- Thread-safe Logger with file + level control via JSON config.
-- In-process MessagingBus (pub/sub) with mutex-protected fan-out.
-- JSON ConfigLoader for runtime parameters (e.g., tick period, log level/file).
-- Telemetry publisher (uptime + tick counter).
-- HealthMonitor with heartbeat-based liveness detection.
-- Signal-aware lifecycle hooks that publish `SystemStart` and `SystemShutdown`.
-- All components covered by Catch2 unit tests.
+## Scope
 
-### Intentionally **not** in v1.0
-- No networking stack or packet forwarding yet.
-- No Yocto build, QEMU image, or kernel drivers in the runtime path.
-- No persistence, RPC/CLI surface, or distributed messaging layer.
-- No hard real-time guarantees.
+### v1.0 – Runtime Core (stabilized)
+- Deterministic tick-driven daemon
+- Thread-safe Logger (JSON-configured)
+- In-process MessagingBus (pub/sub)
+- JSON ConfigLoader
+- Telemetry (uptime, tick counter)
+- HealthMonitor with heartbeat-based transitions
+- SystemStart / SystemShutdown lifecycle events
+- Full Catch2 unit test coverage
 
-## Runtime architecture
-EdgeNetSwitch is event-driven: every subsystem talks through the in-process MessagingBus. The daemon owns the loop and the lifecycle; modules remain isolated and replaceable.
+### v1.1 – Control Plane & Observability
+- UNIX domain socket control plane at /tmp/edgenetswitch.sock
+- Dedicated control thread (non-blocking to runtime)
+- Read-only runtime inspection
+- CLI command: status
+- Live telemetry snapshot retrieval
+- Clean separation between runtime, control plane, and CLI
+- Graceful shutdown coordination between threads
+
+### Intentionally not included (as of v1.1)
+- Runtime mutation or control commands
+- Networking / switching logic
+- Yocto or QEMU integration
+- Remote TCP/IP management
+- Authentication or authorization
+- Hard real-time guarantees
+Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane stabilizes.
+
+## Runtime & control-plane architecture
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket without pausing the runtime.
 
 ```
-+------------------------------------------------------------+
-| EdgeNetSwitch Daemon (C++20, tick-driven)                  |
-|                                                            |
-|  +-----------------+     +-----------------+               |
-|  | ConfigLoader    |-->  | MessagingBus    |<-- signals    |
-|  +-----------------+     +--------+--------+               |
-|                              ^    ^                        |
-|                              |    |                        |
-|                   Telemetry --    -- HealthMonitor         |
-|                              \    /                        |
-|                              Logger                        |
-+------------------------------------------------------------+
++-------------------------------------------------------------+
+| Runtime core (tick loop)                                    |
+|                                                             |
+|  +-----------+     +---------------+     +---------------+  |
+|  | Telemetry |-->  | MessagingBus  | <-> | HealthMonitor |  |
+|  +-----------+     +-------+-------+     +---------------+  |
+|        |                   |                    ^           |
+|        |                   v                    |           |
+|        +---------------> Logger <---------------+           |
++-------------------------------------------------------------+
+                              |
+                              v
+            +--------------------------------------+
+            |      Control thread (non-block)      |
+            | UNIX socket: /tmp/edgenetswitch.sock |
+            +--------------------------------------+
+                              |
+                              v
+                             CLI
 ```
-
-### Modules at a glance
-- `Logger`: thread-safe sink; configured at startup; used across subscribers.
-- `MessagingBus`: pub/sub fan-out keyed by `MessageType`; copies subscriber lists before dispatch to avoid holding locks during callbacks.
-- `ConfigLoader`: JSON source of truth (tick interval, log settings).
-- `Telemetry`: emits uptime + tick count each loop.
-- `HealthMonitor`: tracks last heartbeat; publishes transitions on timeout.
-- `main`: installs signal handlers, wires subscriptions, publishes lifecycle events, and runs the deterministic loop.
 
 ## Daemon loop & message flow
-- Lifecycle:
-  - Load `config/edgenetswitch.json`, init Logger, construct MessagingBus/Telemetry/HealthMonitor.
-  - Subscribe logger/health handlers to `SystemStart`, `Telemetry`, `HealthStatus`, `SystemShutdown`.
-  - Publish `SystemStart`, then enter the tick loop. Signals (`SIGINT`/`SIGTERM`) flip an atomic flag to exit.
-- Per-iteration order:
-  1. `telemetry.onTick()` → publishes `Telemetry`.
-  2. `health.onTick()` → publishes `HealthStatus` only on state transitions.
-  3. `sleep(cfg.daemon.tick_ms)` (default 100 ms).
-- Heartbeats: The Telemetry subscriber calls `health.onHeartbeat()` so `HealthMonitor` only warns when heartbeats stop exceeding its timeout (500 ms by default).
-- Shutdown: loop exit publishes `SystemShutdown`, logs, then flushes and shuts down the logger.
-
-High-level loop sketch:
+- Startup: install signal handlers; load JSON config; initialize Logger, MessagingBus, Telemetry, HealthMonitor; open control socket and start control thread.
+- Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
+- Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
+- Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, publishes `SystemShutdown`, and closes the socket.
+- Control lifecycle: control thread blocks on accept, serves read-only status snapshots, and terminates when the stop flag flips.
 
 ```cpp
-installSignalHandlers();
-auto cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
-Telemetry telemetry(bus, cfg);
-HealthMonitor health(bus, /*timeout_ms=*/500);
+std::atomic_bool stopFlag{false};
 
-bus.publish({MessageType::SystemStart, nowMs()});
-while (!stop_requested) {
-    telemetry.onTick();   // publishes Telemetry
-    health.onTick();      // publishes HealthStatus on transitions
-    std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
+int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "status") {
+        return runStatusCLI() ? 0 : 1;
+    }
+
+    installSignalHandlers();
+    auto cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
+    Logger::init(Logger::parseLevel(cfg.log.level), cfg.log.file);
+
+    MessagingBus bus;
+    Telemetry telemetry(bus, cfg);
+    HealthMonitor health(bus, 500);
+
+    int control_fd = createControlSocket();
+    std::thread control(controlSocketThreadFunc, control_fd, std::cref(telemetry), std::cref(stopFlag));
+
+    bus.publish({MessageType::SystemStart, nowMs()});
+    while (!stopFlag.load(std::memory_order_relaxed)) {
+        telemetry.onTick();
+        health.onTick();
+        std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
+    }
+
+    control.join();
+    destroyControlSocket(control_fd);
+    bus.publish({MessageType::SystemShutdown, nowMs()});
+    Logger::shutdown();
 }
-bus.publish({MessageType::SystemShutdown, nowMs()});
 ```
 
+## CLI usage (v1.1)
+- Run the daemon: `./build/EdgeNetSwitchDaemon`
+- Query status (from another shell): `./build/EdgeNetSwitchDaemon status`
+- Example output: `uptime_ms=12345 tick_count=678`
+
 ## Testability and extensibility
-- Deterministic tick loop and pure-message interactions make modules easy to unit test; every core component ships with Catch2 tests.
-- MessagingBus decouples producers/consumers, so new subsystems (e.g., routing logic, CLI adapters) can subscribe without touching existing code.
-- Heartbeat-based health keeps logs quiet until liveness changes, mirroring watchdog patterns common in embedded systems.
-- JSON config keeps runtime parameters mutable without recompiling.
+- Deterministic tick loop and pure message passing make behavior reproducible and unit-testable.
+- MessagingBus decouples producers and consumers, enabling new subsystems without touching the runtime loop.
+- Control plane stays out-of-band and read-only, preserving timing while exposing observability.
+- Architecture scales toward networking/orchestration by adding subscribers and control commands without rewriting the core.
 
 ## Build, run, test
 ```bash
-# Fetch dependencies
 git submodule update --init --recursive
 
-# Configure and build
 cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build
 
 # Run daemon (reads config/edgenetswitch.json)
 ./build/EdgeNetSwitchDaemon
 
-# Execute unit tests
+# Read-only status query
+./build/EdgeNetSwitchDaemon status
+
+# Unit tests
 ctest --test-dir build
 ```
 
 ## Roadmap
-- Yocto layer and image recipes to bake the daemon into a reproducible rootfs.
-- QEMU automation for ARM64 bring-up and end-to-end boot tests.
-- Networking stack simulation (routing/switching flows, control-plane hooks).
-- Kernel modules and pseudo-drivers with user-space integration paths.
-- Control/inspection surface (CLI or RPC) backed by the MessagingBus.
-- Integration and soak tests that exercise startup, heartbeat loss, and recovery.
+- JSON-based control protocol
+- Extended runtime status model
+- Networking and switching subsystems
+- Yocto/QEMU integration
+- Kernel <-> user-space experiments
+- Long-running soak tests
 
 ## Contact
-Questions, feedback, ideas?
-
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Murat_Toğunçhan_Düzgün-blue.svg)](https://www.linkedin.com/in/togunchan/)
-[![GitHub](https://img.shields.io/badge/GitHub-togunchan-black.svg)](https://github.com/togunchan)
+[![LinkedIn - Murat Toğunçhan Düzgün](https://img.shields.io/badge/LinkedIn-Murat%20To%C4%9Fun%C3%A7han%20D%C3%BCzg%C3%BCn-blue.svg)](https://www.linkedin.com/in/togunchan/)
+[![GitHub - togunchan](https://img.shields.io/badge/GitHub-togunchan-black.svg)](https://github.com/togunchan)
