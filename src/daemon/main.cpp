@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <thread>
 #include <chrono>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <cstring>
 
 using namespace edgenetswitch;
 
@@ -66,6 +70,95 @@ namespace
     {
         return RuntimeStatus{.metrics = telemetry.snapshot(), .state = stateToString(state)};
     }
+
+    constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
+
+    int createControlSocket()
+    {
+        int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (fd < 0)
+        {
+            Logger::error("Failed to create control socket");
+            return -1;
+        }
+
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, CONTROL_SOCKET_PATH, sizeof(addr.sun_path) - 1);
+
+        // Remove any existing socket file at the same path
+        ::unlink(CONTROL_SOCKET_PATH);
+
+        if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
+        {
+            Logger::error("Failed to bind the control socket");
+            ::close(fd);
+            return -1;
+        }
+
+        // Allow the socket to accept incoming connections, with a queue size of up to 4
+        if (::listen(fd, 4) < 0)
+        {
+            Logger::error("Failed to listen on control socket");
+            ::close(fd);
+            return -1;
+        }
+
+        Logger::info(std::string("Control socket listening at ") + CONTROL_SOCKET_PATH);
+        return fd;
+    }
+
+    void destroyControlSocket(int fd)
+    {
+        if (fd >= 0)
+        {
+            ::close(fd);
+            ::unlink(CONTROL_SOCKET_PATH);
+            Logger::info("Control socket closed");
+        }
+    }
+
+    void controlSocketThreadFunc(int control_fd, const Telemetry &telemetry, const std::atomic_bool &stopRequested)
+    {
+        while (!stopRequested.load(std::memory_order_relaxed))
+        {
+            int client_fd = ::accept(control_fd, nullptr, nullptr);
+            if (client_fd < 0)
+            {
+                // If accept() fails with EINTR (interrupted by signal), just retry.
+                if (errno == EINTR)
+                {
+                    continue;
+                }
+                // For other errors, log the failure and continue the loop.
+                Logger::error("Control socket accept failed");
+                continue;
+            }
+
+            char buffer[128]{};
+            ssize_t n = ::read(client_fd, buffer, sizeof(buffer) - 1);
+            if (n > 0)
+            {
+                std::string cmd(buffer, n);
+                if (cmd.find("status") != std::string::npos)
+                {
+                    auto metrics = telemetry.snapshot();
+                    std::string response =
+                        "uptime_ms=" + std::to_string(metrics.uptime_ms) +
+                        " tick_count=" + std::to_string(metrics.tick_count) + "\n";
+
+                    ::write(client_fd, response.c_str(), response.size());
+                }
+                else
+                {
+                    std::string response = "unknown command\n";
+                    ::write(client_fd, response.c_str(), response.size());
+                }
+            }
+            ::close(client_fd);
+        }
+    }
+
 } // namespace
 
 int main(int argc, char *argv[])
@@ -101,6 +194,18 @@ int main(int argc, char *argv[])
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor health(bus, 500);
+
+    int control_fd = createControlSocket();
+    std::thread controlThread;
+
+    if (control_fd >= 0)
+    {
+        controlThread = std::thread(controlSocketThreadFunc, control_fd, std::cref(telemetry), std::cref(g_stopRequested));
+    }
+    else
+    {
+        Logger::warn("Control socket not available; continuing without IPC");
+    }
 
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
@@ -138,6 +243,13 @@ int main(int argc, char *argv[])
         health.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
+
+    if (controlThread.joinable())
+    {
+        controlThread.join();
+    }
+
+    destroyControlSocket(control_fd);
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
