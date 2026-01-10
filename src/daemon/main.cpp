@@ -5,6 +5,7 @@
 #include "edgenetswitch/HealthMonitor.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
+#include "edgenetswitch/control/ControlWire.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -171,12 +172,17 @@ namespace
                             "uptime_ms=" + std::to_string(status.metrics.uptime_ms) + "\n" +
                             "tick_count=" + std::to_string(status.metrics.tick_count)};
 
-                    ::write(client_fd, resp.payload.c_str(), resp.payload.size());
+                    const std::string wire = control::encodeResponse(resp);
+                    ::write(client_fd, wire.c_str(), wire.size());
                 }
                 else
                 {
-                    std::string response = "unknown command\n";
-                    ::write(client_fd, response.c_str(), response.size());
+                    control::ControlResponse resp{
+                        .success = false,
+                        .error = "unknown command"};
+
+                    const std::string wire = control::encodeResponse(resp);
+                    ::write(client_fd, wire.c_str(), wire.size());
                 }
             }
             ::close(client_fd);
@@ -207,16 +213,47 @@ namespace
         std::string wire = req.version + "|" + req.command;
         ::write(fd, wire.c_str(), wire.size());
 
+        std::string accum;
         char buffer[256]{};
-        ssize_t n = ::read(fd, buffer, sizeof(buffer) - 1);
 
-        if (n > 0)
-            Logger::info(std::string(buffer, n));
+        while (true)
+        {
+            ssize_t n = ::read(fd, buffer, sizeof(buffer) - 1);
+            if (n < 0)
+                break;
+
+            accum.append(buffer, buffer + n);
+
+            if (accum.find("END\n") != std::string::npos)
+                break;
+        }
+
+        if (accum.empty())
+        {
+            Logger::warn("CLI: no response from daemon");
+            ::close(fd);
+            return false;
+        }
+
+        auto firstNL = accum.find('\n');
+        std::string header = (firstNL == std::string::npos) ? accum : accum.substr(0, firstNL);
+
+        Logger::info("Runtime Status");
+        Logger::info("--------------");
+
+        auto endPos = accum.find("END\n");
+        std::string body = (firstNL == std::string::npos) ? "" : accum.substr(firstNL + 1, endPos - (firstNL + 1));
+
+        if (header == "OK")
+        {
+            Logger::info(body);
+            return true;
+        }
         else
-            Logger::warn("CLI: empty response");
-
-        ::close(fd);
-        return true;
+        {
+            Logger::error(body);
+            return false;
+        }
     }
 
 } // namespace
