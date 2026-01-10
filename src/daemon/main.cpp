@@ -6,6 +6,10 @@
 #include "edgenetswitch/RuntimeStatus.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/control/ControlWire.hpp"
+#include "RuntimeStatusBuilder.hpp"
+#include "ControlProtocol.hpp"
+#include "ControlContext.hpp"
+#include "ControlDispatch.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -40,37 +44,6 @@ namespace
         using namespace std::chrono;
         return static_cast<std::uint64_t>(
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
-    }
-
-    enum class RuntimeState
-    {
-        Booting,
-        Running,
-        Stopping
-    };
-
-    static std::string stateToString(RuntimeState s)
-    {
-        switch (s)
-        {
-        case RuntimeState::Booting:
-            return "BOOTING";
-            break;
-        case RuntimeState::Running:
-            return "RUNNING";
-            break;
-        case RuntimeState::Stopping:
-            return "STOPPING";
-            break;
-
-        default:
-            return "UNKNOWN";
-        }
-    }
-
-    static RuntimeStatus buildRuntimeStatus(const Telemetry &telemetry, RuntimeState state)
-    {
-        return RuntimeStatus{.metrics = telemetry.snapshot(), .state = stateToString(state)};
     }
 
     constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
@@ -149,7 +122,11 @@ namespace
                 auto sep = cmd.find('|');
                 if (sep == std::string::npos)
                 {
-                    Logger::error("Malformed control request: missing '|' separator:" + cmd);
+                    control::ControlResponse resp{
+                        .success = false,
+                        .error = "malformed request"};
+                    auto wire = control::encodeResponse(resp);
+                    ::write(client_fd, wire.c_str(), wire.size());
                     ::close(client_fd);
                     continue;
                 }
@@ -162,28 +139,13 @@ namespace
                 req.command.erase(
                     req.command.find_last_not_of(" \n\r\t") + 1);
 
-                if (req.command == "status")
-                {
-                    auto status = buildRuntimeStatus(telemetry, runtimeState);
-                    control::ControlResponse resp{
-                        .success = true,
-                        .payload =
-                            "state=" + status.state + "\n" +
-                            "uptime_ms=" + std::to_string(status.metrics.uptime_ms) + "\n" +
-                            "tick_count=" + std::to_string(status.metrics.tick_count)};
+                control::ControlContext ctx{
+                    .telemetry = telemetry,
+                    .runtimeState = runtimeState};
 
-                    const std::string wire = control::encodeResponse(resp);
-                    ::write(client_fd, wire.c_str(), wire.size());
-                }
-                else
-                {
-                    control::ControlResponse resp{
-                        .success = false,
-                        .error = "unknown command"};
-
-                    const std::string wire = control::encodeResponse(resp);
-                    ::write(client_fd, wire.c_str(), wire.size());
-                }
+                control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
+                std::string wire = control::encodeResponse(resp);
+                ::write(client_fd, wire.c_str(), wire.size());
             }
             ::close(client_fd);
         }
@@ -349,7 +311,7 @@ int main(int argc, char *argv[])
 
     const auto status = buildRuntimeStatus(telemetry, runtimeState);
     Logger::info(
-        "RuntimeStatus: state=" + status.state +
+        "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
         " tick_count=" + std::to_string(status.metrics.tick_count));
     bus.publish({MessageType::SystemShutdown, nowMs()});
