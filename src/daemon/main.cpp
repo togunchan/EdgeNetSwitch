@@ -119,7 +119,10 @@ namespace
         }
     }
 
-    void controlSocketThreadFunc(int control_fd, const Telemetry &telemetry, const std::atomic_bool &stopRequested)
+    void controlSocketThreadFunc(int control_fd,
+                                 const Telemetry &telemetry,
+                                 const RuntimeState &runtimeState,
+                                 const std::atomic_bool &stopRequested)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
         {
@@ -160,12 +163,13 @@ namespace
 
                 if (req.command == "status")
                 {
-                    auto metrics = telemetry.snapshot();
+                    auto status = buildRuntimeStatus(telemetry, runtimeState);
                     control::ControlResponse resp{
                         .success = true,
                         .payload =
-                            "uptime_ms=" + std::to_string(metrics.uptime_ms) +
-                            "tick_count=" + std::to_string(metrics.tick_count)};
+                            "state=" + status.state + "\n" +
+                            "uptime_ms=" + std::to_string(status.metrics.uptime_ms) + "\n" +
+                            "tick_count=" + std::to_string(status.metrics.tick_count)};
 
                     ::write(client_fd, resp.payload.c_str(), resp.payload.size());
                 }
@@ -248,7 +252,11 @@ int main(int argc, char *argv[])
 
     if (control_fd >= 0)
     {
-        controlThread = std::thread(controlSocketThreadFunc, control_fd, std::cref(telemetry), std::cref(g_stopRequested));
+        controlThread = std::thread(controlSocketThreadFunc,
+                                    control_fd,
+                                    std::cref(telemetry),
+                                    std::cref(runtimeState),
+                                    std::cref(g_stopRequested));
     }
     else
     {
