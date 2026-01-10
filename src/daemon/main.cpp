@@ -4,6 +4,7 @@
 #include "edgenetswitch/Telemetry.hpp"
 #include "edgenetswitch/HealthMonitor.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
+#include "edgenetswitch/control/ControlProtocol.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -140,14 +141,33 @@ namespace
             if (n > 0)
             {
                 std::string cmd(buffer, n);
-                if (cmd.find("status") != std::string::npos)
+
+                auto sep = cmd.find('|');
+                if (sep == std::string::npos)
+                {
+                    Logger::error("Malformed control request: missing '|' separator:" + cmd);
+                    ::close(client_fd);
+                    continue;
+                }
+
+                control::ControlRequest req{
+                    .version = cmd.substr(0, sep),
+                    .command = cmd.substr(sep + 1)};
+
+                // trim newline
+                req.command.erase(
+                    req.command.find_last_not_of(" \n\r\t") + 1);
+
+                if (req.command == "status")
                 {
                     auto metrics = telemetry.snapshot();
-                    std::string response =
-                        "uptime_ms=" + std::to_string(metrics.uptime_ms) +
-                        " tick_count=" + std::to_string(metrics.tick_count) + "\n";
+                    control::ControlResponse resp{
+                        .success = true,
+                        .payload =
+                            "uptime_ms=" + std::to_string(metrics.uptime_ms) +
+                            "tick_count=" + std::to_string(metrics.tick_count)};
 
-                    ::write(client_fd, response.c_str(), response.size());
+                    ::write(client_fd, resp.payload.c_str(), resp.payload.size());
                 }
                 else
                 {
@@ -179,8 +199,9 @@ namespace
             return false;
         }
 
-        const char *cmd = "status";
-        ::write(fd, cmd, std::strlen(cmd));
+        control::ControlRequest req{.version = "1.2", .command = "status"};
+        std::string wire = req.version + "|" + req.command;
+        ::write(fd, wire.c_str(), wire.size());
 
         char buffer[256]{};
         ssize_t n = ::read(fd, buffer, sizeof(buffer) - 1);
