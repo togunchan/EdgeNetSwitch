@@ -29,6 +29,11 @@ namespace edgenetswitch::control
     {
         using Handler = std::function<ControlResponse(const ControlContext &)>;
 
+        // Static dispatch table:
+        // - Initialized once on first call (not per request)
+        // - Lives for the lifetime of the program
+        // - Scoped to this function to avoid global exposure
+        // - Maps control commands to their corresponding handlers
         static const std::unordered_map<std::string, Handler> handlers = {
             {"status", handleStatus}};
 
