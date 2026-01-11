@@ -8,6 +8,12 @@
 
 namespace edgenetswitch
 {
+    struct HealthSnapshot
+    {
+        bool alive;
+        uint64_t timeout_ms;
+    };
+
     class HealthMonitor
     {
     public:
@@ -15,6 +21,7 @@ namespace edgenetswitch
 
         void onTick();
         void onHeartbeat();
+        HealthSnapshot snapshot() const;
 
     private:
         MessagingBus &bus_;

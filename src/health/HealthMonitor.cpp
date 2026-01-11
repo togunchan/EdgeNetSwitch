@@ -14,7 +14,7 @@ namespace edgenetswitch
                     system_clock::now().time_since_epoch())
                     .count());
         }
-    }
+    } // namespace
 
     HealthMonitor::HealthMonitor(MessagingBus &bus, std::uint64_t timeout_ms)
         : bus_(bus), timeout_ms_(timeout_ms), last_heartbeat_ms_(nowMs()), start_time_ms_(nowMs())
@@ -46,6 +46,15 @@ namespace edgenetswitch
             bus_.publish(msg);
             last_alive_state_ = current_alive;
         }
+    }
+
+    HealthSnapshot HealthMonitor::snapshot() const
+    {
+        const bool current_alive = (nowMs() - last_heartbeat_ms_) <= timeout_ms_;
+
+        return HealthSnapshot{
+            .alive = current_alive,
+            .timeout_ms = timeout_ms_};
     }
 
 } // namespace edgenetswitch
