@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ControlProtocol.hpp"
+#include "edgenetswitch/control/ControlProtocol.hpp"
 #include "ControlContext.hpp"
 
 namespace edgenetswitch::control

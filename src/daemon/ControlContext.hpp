@@ -2,6 +2,7 @@
 
 #include "edgenetswitch/Telemetry.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
+#include "edgenetswitch/HealthMonitor.hpp"
 
 namespace edgenetswitch::control
 {
@@ -10,7 +11,7 @@ namespace edgenetswitch::control
     {
         const Telemetry &telemetry;
         const RuntimeState &runtimeState;
-        const HealthMonitor &health;
+        const HealthMonitor &healthMotitor;
     };
 
 } // namespace edgenetswitch::control

@@ -1,5 +1,3 @@
-#pragma once
-
 #include <unordered_map>
 #include <functional>
 
@@ -23,6 +21,17 @@ namespace edgenetswitch::control
         return resp;
     }
 
+    static ControlResponse handleHealth(const ControlContext &ctx)
+    {
+        auto snap = ctx.healthMotitor.snapshot();
+
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "alive=" + std::string(snap.alive ? "true" : "false") + "\n" +
+                "timeout_ms=" + std::to_string(snap.timeout_ms)};
+    }
+
     ControlResponse dispatchControlRequest(
         const ControlRequest &req,
         const ControlContext &ctx)
@@ -35,7 +44,8 @@ namespace edgenetswitch::control
         // - Scoped to this function to avoid global exposure
         // - Maps control commands to their corresponding handlers
         static const std::unordered_map<std::string, Handler> handlers = {
-            {"status", handleStatus}};
+            {"status", handleStatus},
+            {"health", handleHealth}};
 
         auto it = handlers.find(req.command);
         if (it == handlers.end())

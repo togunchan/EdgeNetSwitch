@@ -96,6 +96,7 @@ target_compile_features(HealthMonitor PUBLIC cxx_std_20)
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
+    src/daemon/ControlDispatch.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon

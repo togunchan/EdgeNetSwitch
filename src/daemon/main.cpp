@@ -7,7 +7,6 @@
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/control/ControlWire.hpp"
 #include "RuntimeStatusBuilder.hpp"
-#include "ControlProtocol.hpp"
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
 
@@ -96,6 +95,7 @@ namespace
     void controlSocketThreadFunc(int control_fd,
                                  const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
+                                 const HealthMonitor &healthMotitor,
                                  const std::atomic_bool &stopRequested)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
@@ -141,7 +141,9 @@ namespace
 
                 control::ControlContext ctx{
                     .telemetry = telemetry,
-                    .runtimeState = runtimeState};
+                    .runtimeState = runtimeState,
+                    .healthMotitor = healthMotitor,
+                };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
                 std::string wire = control::encodeResponse(resp);
@@ -151,7 +153,7 @@ namespace
         }
     }
 
-    bool runStatusCLI()
+    bool runControlCLI(const std::string &command)
     {
         int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0)
@@ -171,7 +173,7 @@ namespace
             return false;
         }
 
-        control::ControlRequest req{.version = "1.2", .command = "status"};
+        control::ControlRequest req{.version = "1.2", .command = command};
         std::string wire = req.version + "|" + req.command;
         ::write(fd, wire.c_str(), wire.size());
 
@@ -222,13 +224,13 @@ namespace
 
 int main(int argc, char *argv[])
 {
-    if (argc > 1 && std::string(argv[1]) == "status")
+    if (argc > 1)
     {
         Logger::init(LogLevel::Info, "");
 
-        if (!runStatusCLI())
+        if (!runControlCLI(argv[1]))
         {
-            Logger::error("Failed to retrieve runtime status (is daemon running?)");
+            Logger::error("Failed to retrieve command (is daemon running?)");
         }
 
         Logger::shutdown();
@@ -244,7 +246,7 @@ int main(int argc, char *argv[])
     MessagingBus bus;
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
-    HealthMonitor health(bus, 500);
+    HealthMonitor healthMotitor(bus, 500);
 
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -255,6 +257,7 @@ int main(int argc, char *argv[])
                                     control_fd,
                                     std::cref(telemetry),
                                     std::cref(runtimeState),
+                                    std::cref(healthMotitor),
                                     std::cref(g_stopRequested));
     }
     else
@@ -270,7 +273,7 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-                    health.onHeartbeat();
+                    healthMotitor.onHeartbeat();
 
                     const auto* data = std::get_if<TelemetryData>(&msg.payload);
                     if (data) {
@@ -295,7 +298,7 @@ int main(int argc, char *argv[])
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
         telemetry.onTick();
-        health.onTick();
+        healthMotitor.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
