@@ -11,14 +11,12 @@ namespace edgenetswitch::control
     static ControlResponse handleStatus(const ControlContext &ctx)
     {
         auto status = buildRuntimeStatus(ctx.telemetry, ctx.runtimeState);
-        control::ControlResponse resp{
+        return control::ControlResponse{
             .success = true,
             .payload =
                 "state=" + stateToString(status.state) + "\n" +
                 "uptime_ms=" + std::to_string(status.metrics.uptime_ms) + "\n" +
                 "tick_count=" + std::to_string(status.metrics.tick_count)};
-
-        return resp;
     }
 
     static ControlResponse handleHealth(const ControlContext &ctx)
@@ -30,6 +28,17 @@ namespace edgenetswitch::control
             .payload =
                 "alive=" + std::string(snap.alive ? "true" : "false") + "\n" +
                 "timeout_ms=" + std::to_string(snap.timeout_ms)};
+    }
+
+    static ControlResponse handleMetrics(const ControlContext &ctx)
+    {
+        auto metrics = ctx.telemetry.snapshot();
+
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "uptime_ms=" + std::to_string(metrics.uptime_ms) + "\n" +
+                "tick_count=" + std::to_string(metrics.tick_count)};
     }
 
     ControlResponse dispatchControlRequest(
@@ -45,7 +54,8 @@ namespace edgenetswitch::control
         // - Maps control commands to their corresponding handlers
         static const std::unordered_map<std::string, Handler> handlers = {
             {"status", handleStatus},
-            {"health", handleHealth}};
+            {"health", handleHealth},
+            {"metrics", handleMetrics}};
 
         auto it = handlers.find(req.command);
         if (it == handlers.end())
