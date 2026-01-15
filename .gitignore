@@ -30,3 +30,4 @@ rootfs.cpio.gz
 # macOS
 .DS_Store
 third_party/Catch2
+.vscode/settings.json
