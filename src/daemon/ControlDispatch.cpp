@@ -41,6 +41,16 @@ namespace edgenetswitch::control
                 "tick_count=" + std::to_string(metrics.tick_count)};
     }
 
+    static ControlResponse handleVersion(const ControlContext &)
+    {
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "version=1.2.0\n"
+                "protocol=1.2\n"
+                "build=debug"};
+    }
+
     ControlResponse dispatchControlRequest(
         const ControlRequest &req,
         const ControlContext &ctx)
@@ -55,7 +65,8 @@ namespace edgenetswitch::control
         static const std::unordered_map<std::string, Handler> handlers = {
             {"status", handleStatus},
             {"health", handleHealth},
-            {"metrics", handleMetrics}};
+            {"metrics", handleMetrics},
+            {"version", handleVersion}};
 
         auto it = handlers.find(req.command);
         if (it == handlers.end())
