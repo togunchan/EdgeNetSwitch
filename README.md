@@ -1,6 +1,6 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.1.0.
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.2.0 (control protocol v1.2).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -23,12 +23,19 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - UNIX domain socket control plane at /tmp/edgenetswitch.sock
 - Dedicated control thread (non-blocking to runtime)
 - Read-only runtime inspection
-- CLI command: status
+- Initial CLI command: status
 - Live telemetry snapshot retrieval
 - Clean separation between runtime, control plane, and CLI
 - Graceful shutdown coordination between threads
 
-### Intentionally not included (as of v1.1)
+### v1.2 – Control Protocol v1.2 (current)
+- Versioned control request/response protocol (v1.2)
+- Framed responses (OK / ERR / END)
+- Centralized command dispatch layer
+- CLI commands: status, health, metrics, version
+- Structured key=value payloads for control responses
+
+### Intentionally not included (as of v1.2)
 - Runtime mutation or control commands
 - Networking / switching logic
 - Yocto or QEMU integration
@@ -38,7 +45,7 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane stabilizes.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket without pausing the runtime.
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a centralized handler map, and returns framed responses without pausing the runtime.
 
 ```
 +-------------------------------------------------------------+
@@ -67,14 +74,15 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 - Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
 - Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
 - Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, publishes `SystemShutdown`, and closes the socket.
-- Control lifecycle: control thread blocks on accept, serves read-only status snapshots, and terminates when the stop flag flips.
+- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the centralized handler map, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
 
 ```cpp
 std::atomic_bool stopFlag{false};
 
 int main(int argc, char** argv) {
-    if (argc > 1 && std::string(argv[1]) == "status") {
-        return runStatusCLI() ? 0 : 1;
+    if (argc > 1) {
+        runControlCLI(argv[1]);
+        return 0;
     }
 
     installSignalHandlers();
@@ -82,11 +90,17 @@ int main(int argc, char** argv) {
     Logger::init(Logger::parseLevel(cfg.log.level), cfg.log.file);
 
     MessagingBus bus;
+    RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor health(bus, 500);
 
     int control_fd = createControlSocket();
-    std::thread control(controlSocketThreadFunc, control_fd, std::cref(telemetry), std::cref(stopFlag));
+    std::thread control(controlSocketThreadFunc,
+                        control_fd,
+                        std::cref(telemetry),
+                        std::cref(runtimeState),
+                        std::cref(health),
+                        std::cref(stopFlag));
 
     bus.publish({MessageType::SystemStart, nowMs()});
     while (!stopFlag.load(std::memory_order_relaxed)) {
@@ -102,16 +116,24 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.1)
+## CLI usage (v1.2)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
-- Query status (from another shell): `./build/EdgeNetSwitchDaemon status`
-- Example output: `uptime_ms=12345 tick_count=678`
+- Query status: `./build/EdgeNetSwitchDaemon status`
+- Query health: `./build/EdgeNetSwitchDaemon health`
+- Query metrics: `./build/EdgeNetSwitchDaemon metrics`
+- Query version: `./build/EdgeNetSwitchDaemon version`
+- Request format: `1.2|<command>`
+- Response framing: `OK` or `ERR` header line, payload lines, terminator `END`
+- `status` payload: `state`, `uptime_ms`, `tick_count`
+- `health` payload: `alive`, `timeout_ms`
+- `metrics` payload: `uptime_ms`, `tick_count`
+- `version` payload: `version`, `protocol`, `build`
 
 ## Testability and extensibility
 - Deterministic tick loop and pure message passing make behavior reproducible and unit-testable.
 - MessagingBus decouples producers and consumers, enabling new subsystems without touching the runtime loop.
 - Control plane stays out-of-band and read-only, preserving timing while exposing observability.
-- Architecture scales toward networking/orchestration by adding subscribers and control commands without rewriting the core.
+- Centralized control dispatch isolates command handling from socket I/O while keeping the runtime loop unchanged.
 
 ## Build, run, test
 ```bash
@@ -123,20 +145,15 @@ cmake --build build
 # Run daemon (reads config/edgenetswitch.json)
 ./build/EdgeNetSwitchDaemon
 
-# Read-only status query
+# Read-only control queries
 ./build/EdgeNetSwitchDaemon status
+./build/EdgeNetSwitchDaemon health
+./build/EdgeNetSwitchDaemon metrics
+./build/EdgeNetSwitchDaemon version
 
 # Unit tests
 ctest --test-dir build
 ```
-
-## Roadmap
-- JSON-based control protocol
-- Extended runtime status model
-- Networking and switching subsystems
-- Yocto/QEMU integration
-- Kernel <-> user-space experiments
-- Long-running soak tests
 
 ## Contact
 [![LinkedIn - Murat Toğunçhan Düzgün](https://img.shields.io/badge/LinkedIn-Murat%20To%C4%9Fun%C3%A7han%20D%C3%BCzg%C3%BCn-blue.svg)](https://www.linkedin.com/in/togunchan/)
