@@ -51,6 +51,18 @@ namespace edgenetswitch::control
                 "build=debug"};
     }
 
+    static ControlResponse handleHelp(const ControlContext &)
+    {
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "commands:\n"
+                "  status   - runtime state and core metrics\n"
+                "  health   - liveness monitoring\n"
+                "  metrics  - telemetry snapshot\n"
+                "  version  - daemon and protocol identification\n"};
+    }
+
     ControlResponse dispatchControlRequest(
         const ControlRequest &req,
         const ControlContext &ctx)
@@ -66,7 +78,8 @@ namespace edgenetswitch::control
             {"status", handleStatus},
             {"health", handleHealth},
             {"metrics", handleMetrics},
-            {"version", handleVersion}};
+            {"version", handleVersion},
+            {"help", handleHelp}};
 
         auto it = handlers.find(req.command);
         if (it == handlers.end())
