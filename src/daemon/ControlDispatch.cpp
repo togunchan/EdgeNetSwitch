@@ -1,8 +1,8 @@
+#include <string>
 #include <unordered_map>
-#include <functional>
 
-#include "edgenetswitch/control/ControlProtocol.hpp"
 #include "ControlContext.hpp"
+#include "ControlDispatch.hpp"
 #include "RuntimeStatusBuilder.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
 
@@ -11,7 +11,7 @@ namespace edgenetswitch::control
     static ControlResponse handleStatus(const ControlContext &ctx)
     {
         auto status = buildRuntimeStatus(ctx.telemetry, ctx.runtimeState);
-        return control::ControlResponse{
+        return ControlResponse{
             .success = true,
             .payload =
                 "state=" + stateToString(status.state) + "\n" +
@@ -67,19 +67,37 @@ namespace edgenetswitch::control
         const ControlRequest &req,
         const ControlContext &ctx)
     {
-        using Handler = std::function<ControlResponse(const ControlContext &)>;
-
         // Static dispatch table:
         // - Initialized once on first call (not per request)
         // - Lives for the lifetime of the program
         // - Scoped to this function to avoid global exposure
         // - Maps control commands to their corresponding handlers
-        static const std::unordered_map<std::string, Handler> handlers = {
-            {"status", handleStatus},
-            {"health", handleHealth},
-            {"metrics", handleMetrics},
-            {"version", handleVersion},
-            {"help", handleHelp}};
+        static const std::unordered_map<std::string, CommandDescriptor> handlers = {
+            {"status",
+             {.name = "status",
+              .description = "runtime state and core metrics",
+              .fields = {"state", "uptime_ms", "tick_count"},
+              .handler = handleStatus}},
+            {"health",
+             {.name = "health",
+              .description = "liveness monitoring",
+              .fields = {"alive", "timeout_ms"},
+              .handler = handleHealth}},
+            {"metrics",
+             {.name = "metrics",
+              .description = "telemetry snapshot",
+              .fields = {"uptime_ms", "tick_count"},
+              .handler = handleMetrics}},
+            {"version",
+             {.name = "version",
+              .description = "daemon and protocol identification",
+              .fields = {"version", "protocol", "build"},
+              .handler = handleVersion}},
+            {"help",
+             {.name = "help",
+              .description = "command listing",
+              .fields = {"commands"},
+              .handler = handleHelp}}};
 
         auto it = handlers.find(req.command);
         if (it == handlers.end())
@@ -89,6 +107,6 @@ namespace edgenetswitch::control
                 .error = "unknown command"};
         }
 
-        return it->second(ctx);
+        return it->second.handler(ctx);
     }
 } // namespace edgenetswitch::control
