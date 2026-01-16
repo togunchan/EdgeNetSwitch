@@ -153,6 +153,21 @@ namespace
         }
     }
 
+    std::string cliTitleForCommand(const std::string &command)
+    {
+        if (command == "status")
+            return "Runtime Status";
+        if (command == "health")
+            return "Health Status";
+        if (command == "metrics")
+            return "Metrics";
+        if (command == "version")
+            return "Version";
+        if (command == "help")
+            return "Help";
+        return command.empty() ? "Command" : command;
+    }
+
     bool runControlCLI(const std::string &command)
     {
         int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
@@ -202,7 +217,7 @@ namespace
         auto firstNL = accum.find('\n');
         std::string header = (firstNL == std::string::npos) ? accum : accum.substr(0, firstNL);
 
-        Logger::info("Runtime Status");
+        Logger::info(cliTitleForCommand(command));
         Logger::info("--------------");
 
         auto endPos = accum.find("END\n");
