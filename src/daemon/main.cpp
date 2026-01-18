@@ -95,7 +95,7 @@ namespace
     void controlSocketThreadFunc(int control_fd,
                                  const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
-                                 const HealthMonitor &healthMotitor,
+                                 const HealthMonitor &healthMonitor,
                                  const std::atomic_bool &stopRequested)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
@@ -142,7 +142,7 @@ namespace
                 control::ControlContext ctx{
                     .telemetry = telemetry,
                     .runtimeState = runtimeState,
-                    .healthMotitor = healthMotitor,
+                    .healthMonitor = healthMonitor,
                 };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
@@ -151,6 +151,21 @@ namespace
             }
             ::close(client_fd);
         }
+    }
+
+    std::string cliTitleForCommand(const std::string &command)
+    {
+        if (command == "status")
+            return "Runtime Status";
+        if (command == "health")
+            return "Health Status";
+        if (command == "metrics")
+            return "Metrics";
+        if (command == "version")
+            return "Version";
+        if (command == "help")
+            return "Help";
+        return command.empty() ? "Command" : command;
     }
 
     bool runControlCLI(const std::string &command)
@@ -202,7 +217,7 @@ namespace
         auto firstNL = accum.find('\n');
         std::string header = (firstNL == std::string::npos) ? accum : accum.substr(0, firstNL);
 
-        Logger::info("Runtime Status");
+        Logger::info(cliTitleForCommand(command));
         Logger::info("--------------");
 
         auto endPos = accum.find("END\n");
@@ -228,7 +243,14 @@ int main(int argc, char *argv[])
     {
         Logger::init(LogLevel::Info, "");
 
-        if (!runControlCLI(argv[1]))
+        std::string command = argv[1];
+        if (command == "help" && argc > 2)
+        {
+            command += ":";
+            command += argv[2];
+        }
+
+        if (!runControlCLI(command))
         {
             Logger::error("Failed to retrieve command (is daemon running?)");
         }
@@ -246,7 +268,7 @@ int main(int argc, char *argv[])
     MessagingBus bus;
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
-    HealthMonitor healthMotitor(bus, 500);
+    HealthMonitor healthMonitor(bus, 500);
 
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -257,7 +279,7 @@ int main(int argc, char *argv[])
                                     control_fd,
                                     std::cref(telemetry),
                                     std::cref(runtimeState),
-                                    std::cref(healthMotitor),
+                                    std::cref(healthMonitor),
                                     std::cref(g_stopRequested));
     }
     else
@@ -273,7 +295,7 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-                    healthMotitor.onHeartbeat();
+                    healthMonitor.onHeartbeat();
 
                     const auto* data = std::get_if<TelemetryData>(&msg.payload);
                     if (data) {
@@ -298,7 +320,7 @@ int main(int argc, char *argv[])
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
         telemetry.onTick();
-        healthMotitor.onTick();
+        healthMonitor.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
