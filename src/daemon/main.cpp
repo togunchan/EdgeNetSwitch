@@ -243,7 +243,14 @@ int main(int argc, char *argv[])
     {
         Logger::init(LogLevel::Info, "");
 
-        if (!runControlCLI(argv[1]))
+        std::string command = argv[1];
+        if (command == "help" && argc > 2)
+        {
+            command += ":";
+            command += argv[2];
+        }
+
+        if (!runControlCLI(command))
         {
             Logger::error("Failed to retrieve command (is daemon running?)");
         }
