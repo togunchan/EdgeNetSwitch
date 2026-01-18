@@ -1,6 +1,6 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.2.0 (control protocol v1.2).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.3.0 (control protocol v1.2).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -28,14 +28,23 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - Clean separation between runtime, control plane, and CLI
 - Graceful shutdown coordination between threads
 
-### v1.2 – Control Protocol v1.2 (current)
+### v1.2 – Control Protocol v1.2
 - Versioned control request/response protocol (v1.2)
 - Framed responses (OK / ERR / END)
 - Centralized command dispatch layer
 - CLI commands: status, health, metrics, version
 - Structured key=value payloads for control responses
 
-### Intentionally not included (as of v1.2)
+### v1.3 – Control Plane Introspection & Dispatch Refinement
+- Metadata-driven dispatch table via `CommandDescriptor`; new commands are registered only through the table.
+- Command introspection via `help`, with detailed `help <command>` and `help:<command>` output derived entirely from dispatch metadata.
+- Unified handler signatures: `(const ControlContext&, const std::string& arg)`.
+- Cleaner CLI/daemon separation: CLI is presentation-only while all logic lives in the daemon.
+- Header hygiene improved using forward declarations.
+- No IPC protocol changes; control protocol remains v1.2.
+- Extensibility improvements without runtime impact; existing command behavior and output are unchanged.
+
+### Intentionally not included (as of v1.3)
 - Runtime mutation or control commands
 - Networking / switching logic
 - Yocto or QEMU integration
@@ -45,7 +54,7 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane stabilizes.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a centralized handler map, and returns framed responses without pausing the runtime.
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime.
 
 ```
 +-------------------------------------------------------------+
@@ -74,7 +83,7 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 - Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
 - Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
 - Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, publishes `SystemShutdown`, and closes the socket.
-- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the centralized handler map, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
+- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
 
 ```cpp
 std::atomic_bool stopFlag{false};
@@ -116,12 +125,16 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.2)
+## CLI usage (v1.3)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
 - Query metrics: `./build/EdgeNetSwitchDaemon metrics`
 - Query version: `./build/EdgeNetSwitchDaemon version`
+- Help summary: `./build/EdgeNetSwitchDaemon help`
+- Help for a command (detailed introspection): `./build/EdgeNetSwitchDaemon help <command>`
+- Help for a command (alternate form): `./build/EdgeNetSwitchDaemon help:<command>`
+- Help output is generated from dispatch metadata in the daemon.
 - Request format: `1.2|<command>`
 - Response framing: `OK` or `ERR` header line, payload lines, terminator `END`
 - `status` payload: `state`, `uptime_ms`, `tick_count`
@@ -134,6 +147,8 @@ int main(int argc, char** argv) {
 - MessagingBus decouples producers and consumers, enabling new subsystems without touching the runtime loop.
 - Control plane stays out-of-band and read-only, preserving timing while exposing observability.
 - Centralized control dispatch isolates command handling from socket I/O while keeping the runtime loop unchanged.
+- Adding a new control command requires only extending the dispatch table; no socket or CLI changes are needed.
+- Dispatch metadata is the single source of truth for command definitions and help output.
 
 ## Build, run, test
 ```bash
