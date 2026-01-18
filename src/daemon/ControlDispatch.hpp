@@ -11,7 +11,9 @@ namespace edgenetswitch::control
     // ControlDispatch.hpp
     struct ControlContext;
 
-    using Handler = std::function<ControlResponse(const ControlContext &)>;
+    using Handler = std::function<ControlResponse(
+        const ControlContext &,
+        const std::string &)>;
 
     struct CommandDescriptor
     {

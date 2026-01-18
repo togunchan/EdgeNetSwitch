@@ -95,7 +95,7 @@ namespace
     void controlSocketThreadFunc(int control_fd,
                                  const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
-                                 const HealthMonitor &healthMotitor,
+                                 const HealthMonitor &healthMonitor,
                                  const std::atomic_bool &stopRequested)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
@@ -142,7 +142,7 @@ namespace
                 control::ControlContext ctx{
                     .telemetry = telemetry,
                     .runtimeState = runtimeState,
-                    .healthMotitor = healthMotitor,
+                    .healthMonitor = healthMonitor,
                 };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
@@ -261,7 +261,7 @@ int main(int argc, char *argv[])
     MessagingBus bus;
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
-    HealthMonitor healthMotitor(bus, 500);
+    HealthMonitor healthMonitor(bus, 500);
 
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
                                     control_fd,
                                     std::cref(telemetry),
                                     std::cref(runtimeState),
-                                    std::cref(healthMotitor),
+                                    std::cref(healthMonitor),
                                     std::cref(g_stopRequested));
     }
     else
@@ -288,7 +288,7 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-                    healthMotitor.onHeartbeat();
+                    healthMonitor.onHeartbeat();
 
                     const auto* data = std::get_if<TelemetryData>(&msg.payload);
                     if (data) {
@@ -313,7 +313,7 @@ int main(int argc, char *argv[])
     while (!g_stopRequested.load(std::memory_order_relaxed))
     {
         telemetry.onTick();
-        healthMotitor.onTick();
+        healthMonitor.onTick();
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 

@@ -12,7 +12,9 @@ namespace edgenetswitch::control
 
     static const CommandTable &commandTable();
 
-    static ControlResponse handleStatus(const ControlContext &ctx)
+    static ControlResponse handleStatus(
+        const ControlContext &ctx,
+        const std::string &)
     {
         auto status = buildRuntimeStatus(ctx.telemetry, ctx.runtimeState);
         return ControlResponse{
@@ -23,9 +25,11 @@ namespace edgenetswitch::control
                 "tick_count=" + std::to_string(status.metrics.tick_count)};
     }
 
-    static ControlResponse handleHealth(const ControlContext &ctx)
+    static ControlResponse handleHealth(
+        const ControlContext &ctx,
+        const std::string &)
     {
-        auto snap = ctx.healthMotitor.snapshot();
+        auto snap = ctx.healthMonitor.snapshot();
 
         return ControlResponse{
             .success = true,
@@ -34,7 +38,9 @@ namespace edgenetswitch::control
                 "timeout_ms=" + std::to_string(snap.timeout_ms)};
     }
 
-    static ControlResponse handleMetrics(const ControlContext &ctx)
+    static ControlResponse handleMetrics(
+        const ControlContext &ctx,
+        const std::string &)
     {
         auto metrics = ctx.telemetry.snapshot();
 
@@ -45,7 +51,9 @@ namespace edgenetswitch::control
                 "tick_count=" + std::to_string(metrics.tick_count)};
     }
 
-    static ControlResponse handleVersion(const ControlContext &)
+    static ControlResponse handleVersion(
+        const ControlContext &,
+        const std::string &)
     {
         return ControlResponse{
             .success = true,
@@ -55,18 +63,45 @@ namespace edgenetswitch::control
                 "build=debug"};
     }
 
-    static ControlResponse handleHelp(const ControlContext &)
+    static ControlResponse handleHelp(
+        const ControlContext &,
+        const std::string &target)
     {
-        std::string out = "commands:\n";
+        const auto &handlers = commandTable();
 
-        for (const auto &[_, desc] : commandTable())
+        // help <command>
+        if (!target.empty())
         {
-            out += "  " + desc.name + " - " + desc.description + "\n";
+            auto it = handlers.find(target);
+            if (it == handlers.end())
+            {
+                return ControlResponse{
+                    .success = false,
+                    .error = "unknown command: " + target};
+            }
+
+            const auto &cmd = it->second;
+
+            std::string payload;
+            payload += "command=" + cmd.name + "\n";
+            payload += "description=" + cmd.description + "\n";
+            payload += "fields:\n";
+            for (const auto &f : cmd.fields)
+            {
+                payload += "  - " + f + "\n";
+            }
+
+            return ControlResponse{.success = true, .payload = payload};
         }
 
-        return ControlResponse{
-            .success = true,
-            .payload = out};
+        // help (general)
+        std::string payload = "commands:\n";
+        for (const auto &[name, desc] : handlers)
+        {
+            payload += "  " + name + " - " + desc.description + "\n";
+        }
+
+        return ControlResponse{.success = true, .payload = payload};
     }
 
     static const CommandTable &commandTable()
@@ -113,14 +148,24 @@ namespace edgenetswitch::control
         const ControlRequest &req,
         const ControlContext &ctx)
     {
+        std::string command = req.command;
+        std::string arg;
+
+        auto sep = command.find(':');
+        if (sep != std::string::npos)
+        {
+            arg = command.substr(sep + 1);
+            command = command.substr(0, sep);
+        }
+
         const auto &table = commandTable();
-        auto it = table.find(req.command);
+        auto it = table.find(command);
         if (it == table.end())
         {
             return ControlResponse{
                 .success = false,
                 .error = "unknown command"};
         }
-        return it->second.handler(ctx);
+        return it->second.handler(ctx, arg);
     }
 } // namespace edgenetswitch::control

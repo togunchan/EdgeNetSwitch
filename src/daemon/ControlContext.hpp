@@ -11,7 +11,7 @@ namespace edgenetswitch::control
     {
         const Telemetry &telemetry;
         const RuntimeState &runtimeState;
-        const HealthMonitor &healthMotitor;
+        const HealthMonitor &healthMonitor;
     };
 
 } // namespace edgenetswitch::control
