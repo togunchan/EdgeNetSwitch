@@ -14,21 +14,20 @@ namespace edgenetswitch::control
         if (resp.success)
         {
             out += "OK\n";
-            out += resp.payload;
-            if (!resp.payload.empty() && resp.payload.back() != '\n')
-                out += "\n";
-        }
-        else
-        {
-            out += "ERR\n";
-            out += "error_code=" + resp.error_code + "\n";
-
-            if (!resp.message.empty())
+            if (!resp.payload.empty())
             {
-                out += "message=" + resp.message + "\n";
+                out += resp.payload;
+                if (resp.payload.back() != '\n')
+                    out += "\n";
             }
+            out += "END\n";
+            return out;
         }
-
+        out += "ERR\n";
+        const std::string &code = resp.error_code.empty() ? error::InternalError : resp.error_code;
+        const std::string &msg = resp.message.empty() ? std::string("internal error") : resp.message;
+        out += "error_code=" + code + "\n";
+        out += "message=" + msg + "\n";
         out += "END\n";
         return out;
     }

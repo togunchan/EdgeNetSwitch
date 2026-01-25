@@ -124,7 +124,7 @@ namespace
                 {
                     control::ControlResponse resp{
                         .success = false,
-                        .error_code = "malformed_request",
+                        .error_code = control::error::InvalidRequest,
                         .message = "malformed_request"};
                     auto wire = control::encodeResponse(resp);
                     ::write(client_fd, wire.c_str(), wire.size());
@@ -145,30 +145,6 @@ namespace
                     .runtimeState = runtimeState,
                     .healthMonitor = healthMonitor,
                 };
-
-                if (!control::isWellFormedVersion(req.version))
-                {
-                    control::ControlResponse resp{
-                        .success = false,
-                        .error_code = "invalid_version",
-                        .message = "invalid protocol version format"};
-                    auto wire = control::encodeResponse(resp);
-                    ::write(client_fd, wire.c_str(), wire.size());
-                    ::close(client_fd);
-                    continue;
-                }
-
-                if (!control::isValidProtocolVersion(req.version))
-                {
-                    control::ControlResponse resp{
-                        .success = false,
-                        .error_code = "unsupported_version",
-                        .message = "unsupported protocol version: " + req.version};
-                    auto wire = control::encodeResponse(resp);
-                    ::write(client_fd, wire.c_str(), wire.size());
-                    ::close(client_fd);
-                    continue;
-                }
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
                 std::string wire = control::encodeResponse(resp);
