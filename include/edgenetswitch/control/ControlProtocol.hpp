@@ -15,9 +15,10 @@ namespace edgenetswitch::control
     // Response sent back by the daemon
     struct ControlResponse
     {
-        bool success = false;
+        bool success{false};
         std::string payload;
-        std::string error;
+        std::string error_code;
+        std::string message;
     };
 
 } // namespace edgenetswitch::control

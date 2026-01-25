@@ -77,7 +77,8 @@ namespace edgenetswitch::control
             {
                 return ControlResponse{
                     .success = false,
-                    .error = "unknown command: " + target};
+                    .error_code = "unknown_command",
+                    .message = "unknown command: " + target};
             }
 
             const auto &cmd = it->second;
@@ -164,7 +165,8 @@ namespace edgenetswitch::control
         {
             return ControlResponse{
                 .success = false,
-                .error = "unknown command"};
+                .error_code = "unknown_command",
+                .message = "unknown command"};
         }
         return it->second.handler(ctx, arg);
     }
