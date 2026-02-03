@@ -1,6 +1,6 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.3.0 (control protocol v1.2).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.4.0. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -44,14 +44,21 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - No IPC protocol changes; control protocol remains v1.2.
 - Extensibility improvements without runtime impact; existing command behavior and output are unchanged.
 
-### Intentionally not included (as of v1.3)
+### v1.4 – Control Protocol Stabilization
+- Explicit protocol version validation (format and support).
+- Backward compatibility enforcement for v1.2; unsupported versions are rejected.
+- Well-defined error taxonomy with stable error_code values.
+- Stable error encoding on the wire (ERR / error_code / message / END).
+- No runtime mutation introduced; control plane remains read-only.
+
+### Intentionally not included (as of v1.4)
 - Runtime mutation or control commands
 - Networking / switching logic
 - Yocto or QEMU integration
 - Remote TCP/IP management
 - Authentication or authorization
 - Hard real-time guarantees
-Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane stabilizes.
+Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
 
 ## Runtime & control-plane architecture
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime.
@@ -125,7 +132,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.3)
+## CLI usage (v1.4)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
@@ -136,11 +143,50 @@ int main(int argc, char** argv) {
 - Help for a command (alternate form): `./build/EdgeNetSwitchDaemon help:<command>`
 - Help output is generated from dispatch metadata in the daemon.
 - Request format: `1.2|<command>`
-- Response framing: `OK` or `ERR` header line, payload lines, terminator `END`
+- Response framing: `OK` or `ERR` header line, payload lines, terminator `END` (errors include `error_code` and `message`)
 - `status` payload: `state`, `uptime_ms`, `tick_count`
 - `health` payload: `alive`, `timeout_ms`
 - `metrics` payload: `uptime_ms`, `tick_count`
 - `version` payload: `version`, `protocol`, `build`
+
+### Control Protocol Error Model
+Errors are part of the protocol contract, not implementation details. Each error carries a stable `error_code` and a human-readable `message`.
+
+- `invalid_request`: missing version or command, or malformed request line.
+- `invalid_version_format`: protocol version is not in `digit.digit` form (e.g., `1.2`).
+- `unsupported_version`: version is well-formed but not supported (only `1.2`).
+- `unknown_command`: command is not present in the dispatch table.
+- `internal_error`: fallback when a response lacks a specific error_code.
+
+### CLI / IPC examples
+```text
+# Valid request
+> 1.2|status
+< OK
+< state=<state>
+< uptime_ms=<ms>
+< tick_count=<count>
+< END
+
+# Unsupported version
+> 1.3|status
+< ERR
+< error_code=unsupported_version
+< message=unsupported protocol version: 1.3
+< END
+
+# Unknown command
+> 1.2|frobnicate
+< ERR
+< error_code=unknown_command
+< message=unknown command: frobnicate
+< END
+```
+
+## Design principles
+- Read-only control plane; no runtime mutation.
+- Deterministic runtime loop unchanged.
+- Protocol versioning enables forward-compatible evolution without breaking v1.2 semantics.
 
 ## Testability and extensibility
 - Deterministic tick loop and pure message passing make behavior reproducible and unit-testable.
