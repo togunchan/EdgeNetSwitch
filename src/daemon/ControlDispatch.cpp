@@ -77,7 +77,8 @@ namespace edgenetswitch::control
             {
                 return ControlResponse{
                     .success = false,
-                    .error = "unknown command: " + target};
+                    .error_code = "unknown_command",
+                    .message = "unknown command: " + target};
             }
 
             const auto &cmd = it->second;
@@ -144,7 +145,15 @@ namespace edgenetswitch::control
         return table;
     }
 
-    ControlResponse dispatchControlRequest(
+    static ControlResponse makeError(std::string code, std::string msg)
+    {
+        return ControlResponse{
+            .success = false,
+            .error_code = std::move(code),
+            .message = std::move(msg)};
+    }
+
+    static ControlResponse dispatchV12(
         const ControlRequest &req,
         const ControlContext &ctx)
     {
@@ -162,10 +171,36 @@ namespace edgenetswitch::control
         auto it = table.find(command);
         if (it == table.end())
         {
-            return ControlResponse{
-                .success = false,
-                .error = "unknown command"};
+            return makeError(error::UnknownCommand, "unknown command: " + command);
         }
         return it->second.handler(ctx, arg);
+    }
+
+    ControlResponse dispatchControlRequest(const ControlRequest &req, const ControlContext &ctx)
+    {
+        if (req.version.empty() || req.command.empty())
+        {
+            return makeError(error::InvalidRequest, "missing version or command");
+        }
+
+        if (!isWellFormedVersion(req.version))
+        {
+            return makeError(error::InvalidVersionFormat,
+                             "invalid protocol version format: " + req.version);
+        }
+
+        if (!isValidProtocolVersion(req.version))
+        {
+            return makeError(error::UnsupportedVersion,
+                             "unsupported protocol version: " + req.version);
+        }
+
+        if (req.version == "1.2")
+        {
+            return dispatchV12(req, ctx);
+        }
+
+        return makeError(error::UnsupportedVersion,
+                         "unsupported protocol version: " + req.version);
     }
 } // namespace edgenetswitch::control

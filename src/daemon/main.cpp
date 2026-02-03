@@ -124,7 +124,8 @@ namespace
                 {
                     control::ControlResponse resp{
                         .success = false,
-                        .error = "malformed request"};
+                        .error_code = control::error::InvalidRequest,
+                        .message = "malformed_request"};
                     auto wire = control::encodeResponse(resp);
                     ::write(client_fd, wire.c_str(), wire.size());
                     ::close(client_fd);

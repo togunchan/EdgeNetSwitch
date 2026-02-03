@@ -4,22 +4,30 @@
 
 #include <string>
 
-namespace edgenetswitch::control{
+namespace edgenetswitch::control
+{
 
-    inline std::string encodeResponse(const ControlResponse& resp){
+    inline std::string encodeResponse(const ControlResponse &resp)
+    {
         std::string out;
-        out += (resp.success ? "OK\n" : "ERR\n");
 
-                if (resp.success)
+        if (resp.success)
         {
-            out += resp.payload;
-            if (!out.empty() && out.back() != '\n') out += '\n';
+            out += "OK\n";
+            if (!resp.payload.empty())
+            {
+                out += resp.payload;
+                if (resp.payload.back() != '\n')
+                    out += "\n";
+            }
+            out += "END\n";
+            return out;
         }
-        else
-        {
-            out += "message=" + resp.error + "\n";
-        }
-
+        out += "ERR\n";
+        const std::string &code = resp.error_code.empty() ? error::InternalError : resp.error_code;
+        const std::string &msg = resp.message.empty() ? std::string("internal error") : resp.message;
+        out += "error_code=" + code + "\n";
+        out += "message=" + msg + "\n";
         out += "END\n";
         return out;
     }
