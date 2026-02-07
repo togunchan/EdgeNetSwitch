@@ -9,7 +9,8 @@
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1",
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include",
                 "${workspaceFolder}/include",
-                "${workspaceFolder}/build/third_party/Catch2/generated-includes"
+                "${workspaceFolder}/build/third_party/Catch2/generated-includes",
+                "${workspaceFolder}/src"
             ],
             "defines": [],
             "cStandard": "c11",

@@ -111,6 +111,7 @@ target_link_libraries(EdgeNetSwitchDaemon
 target_include_directories(EdgeNetSwitchDaemon
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(EdgeNetSwitchDaemon PRIVATE cxx_std_20)

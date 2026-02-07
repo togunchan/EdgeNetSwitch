@@ -9,6 +9,7 @@
 #include "RuntimeStatusBuilder.hpp"
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
+#include "telemetry/StdoutTelemetryExporter.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -270,6 +271,7 @@ int main(int argc, char *argv[])
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
+    StdoutTelemetryExporter telemetryExporter;
 
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -300,7 +302,13 @@ int main(int argc, char *argv[])
 
                     const auto* data = std::get_if<TelemetryData>(&msg.payload);
                     if (data) {
-                        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count)); 
+                        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
+                        
+                        RuntimeMetrics metrics{
+                            .uptime_ms = data->uptime_ms,
+                            .tick_count = data->tick_count
+                        };
+                        telemetryExporter.exportSample(metrics);
                     } });
 
     bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
