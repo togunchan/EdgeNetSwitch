@@ -37,6 +37,7 @@ namespace edgenetswitch
         HealthStatus health;
         RuntimeState state; // booting, running, stopping etc...
         std::uint64_t snapshot_timestamp_ms{};
+        std::uint64_t snapshot_version{};
     };
 
 } // namespace edgenetswitch

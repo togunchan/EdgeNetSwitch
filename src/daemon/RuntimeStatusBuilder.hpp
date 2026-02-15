@@ -13,5 +13,6 @@ namespace edgenetswitch
         const Telemetry &,
         const HealthMonitor &,
         RuntimeState,
+        std::uint64_t,
         std::uint64_t);
 } // namespace edgenetswitch

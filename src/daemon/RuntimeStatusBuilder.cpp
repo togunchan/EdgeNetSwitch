@@ -10,7 +10,8 @@ namespace edgenetswitch
         const Telemetry &telemetry,
         const HealthMonitor &healthMonitor,
         RuntimeState state,
-        std::uint64_t now_ms)
+        std::uint64_t now_ms,
+        std::uint64_t version)
     {
         return RuntimeStatus{
             .metrics = telemetry.snapshot(),

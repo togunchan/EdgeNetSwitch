@@ -30,6 +30,7 @@ namespace
 {
     std::atomic_bool g_stopRequested{false};
     std::shared_ptr<const RuntimeStatus> g_runtimeSnapshot;
+    std::atomic<std::uint64_t> g_snapshotVersion{0};
 
     void handleSignal(int)
     {
@@ -278,8 +279,20 @@ int main(int argc, char *argv[])
 
     exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
 
-    g_runtimeSnapshot = std::make_shared<const RuntimeStatus>(
-        buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs()));
+    {
+        auto version =
+            g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+
+        auto snap = std::make_shared<const RuntimeStatus>(
+            buildRuntimeStatus(
+                telemetry,
+                healthMonitor,
+                runtimeState,
+                nowMs(),
+                version));
+
+        std::atomic_store(&g_runtimeSnapshot, snap);
+    }
 
     if (control_fd >= 0)
     {
@@ -308,7 +321,7 @@ int main(int argc, char *argv[])
         const auto *data = std::get_if<TelemetryData>(&msg.payload);
         if (data)
         {
-            Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
+            // Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
 
             RuntimeMetrics metrics{
                 .uptime_ms = data->uptime_ms,
@@ -339,9 +352,10 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
+        auto version = g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
 
         auto snap = std::make_shared<const RuntimeStatus>(
-            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs()));
+            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs(), version));
 
         std::atomic_store(&g_runtimeSnapshot, snap);
 
@@ -358,7 +372,8 @@ int main(int argc, char *argv[])
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
 
-    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
+    auto version = g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs(), version);
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
