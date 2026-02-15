@@ -22,6 +22,7 @@ namespace edgenetswitch
         void onTick();
         void onHeartbeat();
         HealthSnapshot snapshot() const;
+        HealthStatus currentStatus() const;
 
     private:
         MessagingBus &bus_;

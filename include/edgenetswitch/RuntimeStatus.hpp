@@ -1,6 +1,8 @@
 #pragma once
 
+#include "edgenetswitch/MessagingBus.hpp"
 #include "edgenetswitch/RuntimeMetrics.hpp"
+#include <cstdint>
 #include <string>
 
 namespace edgenetswitch
@@ -32,7 +34,9 @@ namespace edgenetswitch
     struct RuntimeStatus
     {
         RuntimeMetrics metrics;
+        HealthStatus health;
         RuntimeState state; // booting, running, stopping etc...
+        std::uint64_t snapshot_timestamp_ms{};
     };
 
 } // namespace edgenetswitch

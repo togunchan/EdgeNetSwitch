@@ -1,9 +1,9 @@
+#include <atomic>
 #include <string>
 #include <unordered_map>
 
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
-#include "RuntimeStatusBuilder.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
 
 namespace edgenetswitch::control
@@ -12,43 +12,84 @@ namespace edgenetswitch::control
 
     static const CommandTable &commandTable();
 
+    static ControlResponse makeInternalError(const std::string &msg)
+    {
+        return ControlResponse{
+            .success = false,
+            .error_code = error::InternalError,
+            .message = msg};
+    }
+
+    static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx, ControlResponse &err)
+    {
+        if (!ctx.snapshot_ptr)
+        {
+            err = makeInternalError("runtime snapshot pointer is null");
+            return {};
+        }
+
+        auto snap = std::atomic_load(ctx.snapshot_ptr);
+        if (!snap)
+        {
+            err = makeInternalError("runtime snapshot is not available");
+        }
+        return snap;
+    }
+
     static ControlResponse handleStatus(
         const ControlContext &ctx,
         const std::string &)
     {
-        auto status = buildRuntimeStatus(ctx.telemetry, ctx.runtimeState);
+        ControlResponse err{};
+        auto snap = loadSnapshot(ctx, err);
+        if (!snap)
+        {
+            return err;
+        }
+
         return ControlResponse{
             .success = true,
             .payload =
-                "state=" + stateToString(status.state) + "\n" +
-                "uptime_ms=" + std::to_string(status.metrics.uptime_ms) + "\n" +
-                "tick_count=" + std::to_string(status.metrics.tick_count)};
+                "state=" + stateToString(snap->state) + "\n" +
+                "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
+                "tick_count=" + std::to_string(snap->metrics.tick_count)};
     }
 
     static ControlResponse handleHealth(
         const ControlContext &ctx,
         const std::string &)
     {
-        auto snap = ctx.healthMonitor.snapshot();
+        ControlResponse err{};
+        auto snap = loadSnapshot(ctx, err);
+        if (!snap)
+        {
+            return err;
+        }
 
         return ControlResponse{
             .success = true,
             .payload =
-                "alive=" + std::string(snap.alive ? "true" : "false") + "\n" +
-                "timeout_ms=" + std::to_string(snap.timeout_ms)};
+                "alive=" + std::string(snap->health.is_alive ? "true" : "false") + "\n" +
+                "silence_ms=" + std::to_string(snap->health.silence_duration_ms) + "\n" +
+                "last_heartbeat_ms=" + std::to_string(snap->health.last_heartbeat_ms)};
     }
 
     static ControlResponse handleMetrics(
         const ControlContext &ctx,
         const std::string &)
     {
-        auto metrics = ctx.telemetry.snapshot();
+        ControlResponse err{};
+        auto snap = loadSnapshot(ctx, err);
+        if (!snap)
+        {
+            return err;
+        }
 
         return ControlResponse{
             .success = true,
             .payload =
-                "uptime_ms=" + std::to_string(metrics.uptime_ms) + "\n" +
-                "tick_count=" + std::to_string(metrics.tick_count)};
+                "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
+                "tick_count=" + std::to_string(snap->metrics.tick_count)};
     }
 
     static ControlResponse handleVersion(

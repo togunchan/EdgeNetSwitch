@@ -62,11 +62,14 @@ target_compile_features(Config PUBLIC cxx_std_20)
 # -------------------------------------------------------
 add_library(Telemetry
     src/telemetry/Telemetry.cpp
+    src/telemetry/TelemetryExportManager.cpp
 )
 
 target_include_directories(Telemetry
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(Telemetry
@@ -97,6 +100,7 @@ target_compile_features(HealthMonitor PUBLIC cxx_std_20)
 add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
     src/daemon/ControlDispatch.cpp
+    src/daemon/RuntimeStatusBuilder.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon

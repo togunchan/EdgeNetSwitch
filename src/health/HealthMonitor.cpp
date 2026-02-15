@@ -57,4 +57,16 @@ namespace edgenetswitch
             .timeout_ms = timeout_ms_};
     }
 
+    HealthStatus HealthMonitor::currentStatus() const
+    {
+        const auto now = nowMs();
+        const bool current_alive = (now - last_heartbeat_ms_) <= timeout_ms_;
+
+        HealthStatus status{};
+        status.uptime_ms = now - start_time_ms_;
+        status.last_heartbeat_ms = last_heartbeat_ms_;
+        status.is_alive = current_alive;
+        return status;
+    }
+
 } // namespace edgenetswitch

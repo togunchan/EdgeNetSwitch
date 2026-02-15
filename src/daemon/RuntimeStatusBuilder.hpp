@@ -1,17 +1,17 @@
 #pragma once
 
 #include "edgenetswitch/RuntimeStatus.hpp"
-#include "edgenetswitch/Telemetry.hpp"
+
+#include <cstdint>
 
 namespace edgenetswitch
 {
+    class Telemetry;
+    class HealthMonitor;
 
-    inline RuntimeStatus buildRuntimeStatus(
-        const Telemetry &telemetry,
-        RuntimeState state)
-    {
-        return RuntimeStatus{
-            .metrics = telemetry.snapshot(),
-            .state = state};
-    }
+    RuntimeStatus buildRuntimeStatus(
+        const Telemetry &,
+        const HealthMonitor &,
+        RuntimeState,
+        std::uint64_t);
 } // namespace edgenetswitch

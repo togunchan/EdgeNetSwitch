@@ -9,7 +9,7 @@
 #include "RuntimeStatusBuilder.hpp"
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
-#include "telemetry/StdoutTelemetryExporter.hpp"
+#include "telemetry/TelemetryExportManager.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -20,13 +20,16 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <cstring>
+#include <memory>
 
 using namespace edgenetswitch;
+using namespace edgenetswitch::telemetry;
 
 // anonymous namespace: restricts symbols to this translation unit only
 namespace
 {
     std::atomic_bool g_stopRequested{false};
+    std::shared_ptr<const RuntimeStatus> g_runtimeSnapshot;
 
     void handleSignal(int)
     {
@@ -142,9 +145,7 @@ namespace
                     req.command.find_last_not_of(" \n\r\t") + 1);
 
                 control::ControlContext ctx{
-                    .telemetry = telemetry,
-                    .runtimeState = runtimeState,
-                    .healthMonitor = healthMonitor,
+                    .snapshot_ptr = &g_runtimeSnapshot,
                 };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
@@ -271,10 +272,14 @@ int main(int argc, char *argv[])
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
-    StdoutTelemetryExporter telemetryExporter;
-
+    TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
     std::thread controlThread;
+
+    exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
+
+    g_runtimeSnapshot = std::make_shared<const RuntimeStatus>(
+        buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs()));
 
     if (control_fd >= 0)
     {
@@ -298,29 +303,33 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-                    healthMonitor.onHeartbeat();
+        healthMonitor.onHeartbeat();
 
-                    const auto* data = std::get_if<TelemetryData>(&msg.payload);
-                    if (data) {
-                        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
-                        
-                        RuntimeMetrics metrics{
-                            .uptime_ms = data->uptime_ms,
-                            .tick_count = data->tick_count
-                        };
-                        telemetryExporter.exportSample(metrics);
-                    } });
+        const auto *data = std::get_if<TelemetryData>(&msg.payload);
+        if (data)
+        {
+            Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
+
+            RuntimeMetrics metrics{
+                .uptime_ms = data->uptime_ms,
+                .tick_count = data->tick_count};
+            exportManager.exportSample(metrics);
+        } });
 
     bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
                   {
-                        const auto* hs = std::get_if<HealthStatus>(&msg.payload);
-                        if (!hs) return;
+        const auto *hs = std::get_if<HealthStatus>(&msg.payload);
+        if (!hs)
+            return;
 
-                        if (!hs->is_alive) {
-                            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
-                        } else {
-                            Logger::debug("HealthStatus: alive"); 
-                        } });
+        if (!hs->is_alive)
+        {
+            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
+        }
+        else
+        {
+            Logger::debug("HealthStatus: alive");
+        } });
 
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;
@@ -330,6 +339,12 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
+
+        auto snap = std::make_shared<const RuntimeStatus>(
+            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs()));
+
+        std::atomic_store(&g_runtimeSnapshot, snap);
+
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
@@ -343,7 +358,7 @@ int main(int argc, char *argv[])
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
 
-    const auto status = buildRuntimeStatus(telemetry, runtimeState);
+    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +

@@ -1,17 +1,15 @@
 #pragma once
 
-#include "edgenetswitch/Telemetry.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
-#include "edgenetswitch/HealthMonitor.hpp"
+
+#include <memory>
 
 namespace edgenetswitch::control
 {
 
     struct ControlContext
     {
-        const Telemetry &telemetry;
-        const RuntimeState &runtimeState;
-        const HealthMonitor &healthMonitor;
+        const std::shared_ptr<const edgenetswitch::RuntimeStatus> *snapshot_ptr{nullptr};
     };
 
 } // namespace edgenetswitch::control

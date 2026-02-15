@@ -3,8 +3,6 @@
 
 namespace edgenetswitch::telemetry
 {
-    TelemetryExportManager::TelemetryExportManager() = default;
-
     void TelemetryExportManager::addExporter(std::unique_ptr<TelemetryExporter> exporter)
     {
         if (!exporter)
