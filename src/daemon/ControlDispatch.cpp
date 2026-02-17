@@ -52,7 +52,9 @@ namespace edgenetswitch::control
             .payload =
                 "state=" + stateToString(snap->state) + "\n" +
                 "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
-                "tick_count=" + std::to_string(snap->metrics.tick_count)};
+                "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n" +
+                "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n" +
+                "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms)};
     }
 
     static ControlResponse handleHealth(

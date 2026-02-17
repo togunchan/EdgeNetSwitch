@@ -17,6 +17,7 @@ namespace edgenetswitch
             .metrics = telemetry.snapshot(),
             .health = healthMonitor.currentStatus(),
             .state = state,
-            .snapshot_timestamp_ms = now_ms};
+            .snapshot_timestamp_ms = now_ms,
+            .snapshot_version = version};
     }
 } // namespace edgenetswitch
