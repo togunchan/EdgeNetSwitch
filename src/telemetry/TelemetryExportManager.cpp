@@ -15,9 +15,20 @@ namespace edgenetswitch::telemetry
 
     void TelemetryExportManager::exportSample(const RuntimeMetrics &snapshot) noexcept
     {
-        for (const auto &exporter : exporters_)
+        for (auto &exporter : exporters_)
         {
-            exporter->exportSample(snapshot);
+            try
+            {
+                exporter->exportSample(snapshot);
+            }
+            catch (const std::exception &e)
+            {
+                Logger::error("Telemetry exporter failed: " + std::string(e.what()));
+            }
+            catch (...)
+            {
+                Logger::error("Telemetry exporter failed with unknown exception");
+            }
         }
     }
 

@@ -75,6 +75,7 @@ target_include_directories(Telemetry
 
 target_link_libraries(Telemetry
     PUBLIC
+        Logger
         MessagingBus
         Config
 )
@@ -211,6 +212,7 @@ if(BUILD_TESTING)
 
     add_executable(TelemetryTests
         tests/telemetry_tests.cpp
+        tests/telemetry_export_manager_tests.cpp
     )
 
     target_link_libraries(TelemetryTests
@@ -221,7 +223,7 @@ if(BUILD_TESTING)
             Catch2::Catch2WithMain
     )
 
-    target_include_directories(TelemetryTests PRIVATE include)
+    target_include_directories(TelemetryTests PRIVATE include src)
 
     add_test(NAME TelemetryTests COMMAND TelemetryTests)
 
