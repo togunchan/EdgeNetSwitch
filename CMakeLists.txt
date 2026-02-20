@@ -63,6 +63,7 @@ target_compile_features(Config PUBLIC cxx_std_20)
 add_library(Telemetry
     src/telemetry/Telemetry.cpp
     src/telemetry/TelemetryExportManager.cpp
+    src/telemetry/InMemoryTelemetryExporter.cpp
 )
 
 target_include_directories(Telemetry
