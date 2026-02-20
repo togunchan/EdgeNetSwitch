@@ -279,11 +279,7 @@ int main(int argc, char *argv[])
     std::thread controlThread;
 
     exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
-
-    auto inMemoryExporter = std::make_unique<InMemoryTelemetryExporter>();
-    auto *debugExporter = inMemoryExporter.get();
-
-    exportManager.addExporter(std::move(inMemoryExporter));
+    exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
 
     {
         auto version =
@@ -364,15 +360,6 @@ int main(int argc, char *argv[])
             buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs(), version));
 
         std::atomic_store(&g_runtimeSnapshot, snap);
-
-        static int counter = 0;
-        counter++;
-
-        if (counter % 100 == 0 && debugExporter)
-        {
-            auto snap = debugExporter->snapshot();
-            Logger::info("InMemoryExporter size= " + std::to_string(snap.size()));
-        }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
