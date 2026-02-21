@@ -4,12 +4,18 @@
 
 #include <memory>
 
+namespace edgenetswitch::daemon
+{
+    class SnapshotPublisher;
+}
+
 namespace edgenetswitch::control
 {
 
     struct ControlContext
     {
-        const std::shared_ptr<const edgenetswitch::RuntimeStatus> *snapshot_ptr{nullptr};
+        // Non-owning access to runtime snapshot publisher (read-only boundary).
+        const edgenetswitch::daemon::SnapshotPublisher *publisher{nullptr};
     };
 
 } // namespace edgenetswitch::control

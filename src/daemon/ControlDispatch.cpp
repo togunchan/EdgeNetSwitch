@@ -4,6 +4,7 @@
 
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
+#include "SnapshotPublisher.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
 
 namespace edgenetswitch::control
@@ -22,13 +23,13 @@ namespace edgenetswitch::control
 
     static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx, ControlResponse &err)
     {
-        if (!ctx.snapshot_ptr)
+        if (!ctx.publisher)
         {
             err = makeInternalError("runtime snapshot pointer is null");
             return {};
         }
 
-        auto snap = std::atomic_load(ctx.snapshot_ptr);
+        auto snap = ctx.publisher->load();
         if (!snap)
         {
             err = makeInternalError("runtime snapshot is not available");

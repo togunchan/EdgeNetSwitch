@@ -11,6 +11,7 @@
 #include "ControlDispatch.hpp"
 #include "telemetry/TelemetryExportManager.hpp"
 #include "telemetry/InMemoryTelemetryExporter.hpp"
+#include "SnapshotPublisher.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -30,8 +31,7 @@ using namespace edgenetswitch::telemetry;
 namespace
 {
     std::atomic_bool g_stopRequested{false};
-    std::shared_ptr<const RuntimeStatus> g_runtimeSnapshot;
-    std::atomic<std::uint64_t> g_snapshotVersion{0};
+    edgenetswitch::daemon::SnapshotPublisher g_snapshotPublisher;
 
     void handleSignal(int)
     {
@@ -147,7 +147,7 @@ namespace
                     req.command.find_last_not_of(" \n\r\t") + 1);
 
                 control::ControlContext ctx{
-                    .snapshot_ptr = &g_runtimeSnapshot,
+                    .publisher = &g_snapshotPublisher,
                 };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
@@ -282,18 +282,14 @@ int main(int argc, char *argv[])
     exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
 
     {
-        auto version =
-            g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
 
-        auto snap = std::make_shared<const RuntimeStatus>(
-            buildRuntimeStatus(
-                telemetry,
-                healthMonitor,
-                runtimeState,
-                nowMs(),
-                version));
+        auto status = buildRuntimeStatus(
+            telemetry,
+            healthMonitor,
+            runtimeState,
+            nowMs());
 
-        std::atomic_store(&g_runtimeSnapshot, snap);
+        g_snapshotPublisher.publish(status);
     }
 
     if (control_fd >= 0)
@@ -354,13 +350,11 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
-        auto version = g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
 
-        auto snap = std::make_shared<const RuntimeStatus>(
-            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs(), version));
+        auto status =
+            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
 
-        std::atomic_store(&g_runtimeSnapshot, snap);
-
+        g_snapshotPublisher.publish(status);
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
@@ -373,9 +367,7 @@ int main(int argc, char *argv[])
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
-
-    auto version = g_snapshotVersion.fetch_add(1, std::memory_order_relaxed) + 1;
-    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs(), version);
+    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +

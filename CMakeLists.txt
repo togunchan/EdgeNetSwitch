@@ -103,6 +103,7 @@ add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
     src/daemon/ControlDispatch.cpp
     src/daemon/RuntimeStatusBuilder.cpp
+    src/daemon/SnapshotPublisher.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon
