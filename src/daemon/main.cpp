@@ -306,6 +306,22 @@ int main(int argc, char *argv[])
         Logger::warn("Control socket not available; continuing without IPC");
     }
 
+    std::thread debugReaderThread([]
+                                  {
+        while (!g_stopRequested.load())
+        {
+        auto snap = g_snapshotPublisher.load();
+        if (snap)
+        {
+            Logger::debug(
+                "debug_reader: version=" + std::to_string(snap->snapshot_version) +
+                " tick=" + std::to_string(snap->metrics.tick_count)
+            );
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        } });
+
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
 
@@ -356,6 +372,11 @@ int main(int argc, char *argv[])
 
         g_snapshotPublisher.publish(status);
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
+    }
+
+    if (debugReaderThread.joinable())
+    {
+        debugReaderThread.join();
     }
 
     if (controlThread.joinable())
