@@ -306,6 +306,7 @@ int main(int argc, char *argv[])
         Logger::warn("Control socket not available; continuing without IPC");
     }
 
+#ifdef EDGENETSWITCH_DEBUG_READER
     std::thread debugReaderThread([]
                                   {
         while (!g_stopRequested.load())
@@ -321,6 +322,7 @@ int main(int argc, char *argv[])
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         } });
+#endif
 
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
@@ -374,11 +376,12 @@ int main(int argc, char *argv[])
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
+#ifdef EDGENETSWITCH_DEBUG_READER
     if (debugReaderThread.joinable())
     {
         debugReaderThread.join();
     }
-
+#endif
     if (controlThread.joinable())
     {
         controlThread.join();

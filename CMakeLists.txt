@@ -6,6 +6,7 @@ project(EdgeNetSwitch LANGUAGES CXX)
 # -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+option(ENABLE_DEBUG_READER "Enable debug snapshot reader thread" OFF)
 
 include(CTest)
 
@@ -122,6 +123,9 @@ target_include_directories(EdgeNetSwitchDaemon
 )
 
 target_compile_features(EdgeNetSwitchDaemon PRIVATE cxx_std_20)
+if(ENABLE_DEBUG_READER)
+    target_compile_definitions(EdgeNetSwitchDaemon PRIVATE EDGENETSWITCH_DEBUG_READER)
+endif()
 
 # -------------------------------------------------------
 # Catch2 Submodule
