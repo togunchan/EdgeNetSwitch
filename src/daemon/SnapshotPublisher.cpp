@@ -10,14 +10,14 @@ namespace edgenetswitch::daemon
 
         auto snap = std::make_shared<const RuntimeStatus>(status);
 
-        std::atomic_store(&snapshot_, std::move(snap));
+        std::atomic_store_explicit(&snapshot_, std::move(snap), std::memory_order_release);
 
         return v;
     }
 
     std::shared_ptr<const RuntimeStatus> SnapshotPublisher::load() const
     {
-        return std::atomic_load(&snapshot_);
+        return std::atomic_load_explicit(&snapshot_, std::memory_order_acquire);
     }
 
     std::uint64_t SnapshotPublisher::version() const noexcept
