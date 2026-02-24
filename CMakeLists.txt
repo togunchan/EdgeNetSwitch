@@ -261,6 +261,31 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for SnapshotPublisher
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(SnapshotPublisherTests
+        tests/snapshot_publisher_tests.cpp
+        src/daemon/SnapshotPublisher.cpp
+    )
+
+    target_link_libraries(SnapshotPublisherTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(SnapshotPublisherTests
+        PRIVATE
+            include
+            src
+    )
+
+    add_test(NAME SnapshotPublisherTests COMMAND SnapshotPublisherTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for HealthMonitor transitions
 # -------------------------------------------------------
 if(BUILD_TESTING)
