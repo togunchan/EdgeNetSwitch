@@ -11,6 +11,7 @@
 #include "ControlDispatch.hpp"
 #include "telemetry/TelemetryExportManager.hpp"
 #include "telemetry/InMemoryTelemetryExporter.hpp"
+#include "telemetry/FileTelemetryExporter.hpp"
 #include "SnapshotPublisher.hpp"
 
 #include <atomic>
@@ -280,6 +281,7 @@ int main(int argc, char *argv[])
 
     exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
     exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
+    exportManager.addExporter(std::make_unique<FileTelemetryExporter>("telemetry.log"));
 
     {
 

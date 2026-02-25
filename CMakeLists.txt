@@ -65,6 +65,7 @@ add_library(Telemetry
     src/telemetry/Telemetry.cpp
     src/telemetry/TelemetryExportManager.cpp
     src/telemetry/InMemoryTelemetryExporter.cpp
+    src/telemetry/FileTelemetryExporter.cpp
 )
 
 target_include_directories(Telemetry
