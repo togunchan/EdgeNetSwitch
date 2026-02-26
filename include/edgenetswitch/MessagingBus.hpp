@@ -32,6 +32,7 @@ namespace edgenetswitch
     {
         std::uint64_t uptime_ms{};
         std::uint64_t last_heartbeat_ms{};
+        std::uint64_t silence_duration_ms; // now - last_heartbeat_ms
         bool is_alive{true};
     };
 

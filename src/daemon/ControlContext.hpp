@@ -1,17 +1,21 @@
 #pragma once
 
-#include "edgenetswitch/Telemetry.hpp"
 #include "edgenetswitch/RuntimeStatus.hpp"
-#include "edgenetswitch/HealthMonitor.hpp"
+
+#include <memory>
+
+namespace edgenetswitch::daemon
+{
+    class SnapshotPublisher;
+}
 
 namespace edgenetswitch::control
 {
 
     struct ControlContext
     {
-        const Telemetry &telemetry;
-        const RuntimeState &runtimeState;
-        const HealthMonitor &healthMonitor;
+        // Non-owning access to runtime snapshot publisher (read-only boundary).
+        const edgenetswitch::daemon::SnapshotPublisher *publisher{nullptr};
     };
 
 } // namespace edgenetswitch::control

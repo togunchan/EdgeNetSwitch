@@ -9,6 +9,10 @@
 #include "RuntimeStatusBuilder.hpp"
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
+#include "telemetry/TelemetryExportManager.hpp"
+#include "telemetry/InMemoryTelemetryExporter.hpp"
+#include "telemetry/FileTelemetryExporter.hpp"
+#include "SnapshotPublisher.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -19,13 +23,16 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <cstring>
+#include <memory>
 
 using namespace edgenetswitch;
+using namespace edgenetswitch::telemetry;
 
 // anonymous namespace: restricts symbols to this translation unit only
 namespace
 {
     std::atomic_bool g_stopRequested{false};
+    edgenetswitch::daemon::SnapshotPublisher g_snapshotPublisher;
 
     void handleSignal(int)
     {
@@ -141,9 +148,7 @@ namespace
                     req.command.find_last_not_of(" \n\r\t") + 1);
 
                 control::ControlContext ctx{
-                    .telemetry = telemetry,
-                    .runtimeState = runtimeState,
-                    .healthMonitor = healthMonitor,
+                    .publisher = &g_snapshotPublisher,
                 };
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
@@ -270,9 +275,24 @@ int main(int argc, char *argv[])
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
-
+    TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
     std::thread controlThread;
+
+    exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
+    exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
+    exportManager.addExporter(std::make_unique<FileTelemetryExporter>("telemetry.log"));
+
+    {
+
+        auto status = buildRuntimeStatus(
+            telemetry,
+            healthMonitor,
+            runtimeState,
+            nowMs());
+
+        g_snapshotPublisher.publish(status);
+    }
 
     if (control_fd >= 0)
     {
@@ -288,6 +308,24 @@ int main(int argc, char *argv[])
         Logger::warn("Control socket not available; continuing without IPC");
     }
 
+#ifdef EDGENETSWITCH_DEBUG_READER
+    std::thread debugReaderThread([]
+                                  {
+        while (!g_stopRequested.load())
+        {
+        auto snap = g_snapshotPublisher.load();
+        if (snap)
+        {
+            Logger::debug(
+                "debug_reader: version=" + std::to_string(snap->snapshot_version) +
+                " tick=" + std::to_string(snap->metrics.tick_count)
+            );
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        } });
+#endif
+
     bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
                   { Logger::info("SystemStart received by daemon"); });
 
@@ -296,23 +334,33 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
                   {
-                    healthMonitor.onHeartbeat();
+        healthMonitor.onHeartbeat();
 
-                    const auto* data = std::get_if<TelemetryData>(&msg.payload);
-                    if (data) {
-                        Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count)); 
-                    } });
+        const auto *data = std::get_if<TelemetryData>(&msg.payload);
+        if (data)
+        {
+            // Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
+
+            RuntimeMetrics metrics{
+                .uptime_ms = data->uptime_ms,
+                .tick_count = data->tick_count};
+            exportManager.exportSample(metrics);
+        } });
 
     bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
                   {
-                        const auto* hs = std::get_if<HealthStatus>(&msg.payload);
-                        if (!hs) return;
+        const auto *hs = std::get_if<HealthStatus>(&msg.payload);
+        if (!hs)
+            return;
 
-                        if (!hs->is_alive) {
-                            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
-                        } else {
-                            Logger::debug("HealthStatus: alive"); 
-                        } });
+        if (!hs->is_alive)
+        {
+            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
+        }
+        else
+        {
+            Logger::debug("HealthStatus: alive");
+        } });
 
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;
@@ -322,9 +370,20 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
+
+        auto status =
+            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
+
+        g_snapshotPublisher.publish(status);
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
+#ifdef EDGENETSWITCH_DEBUG_READER
+    if (debugReaderThread.joinable())
+    {
+        debugReaderThread.join();
+    }
+#endif
     if (controlThread.joinable())
     {
         controlThread.join();
@@ -334,8 +393,7 @@ int main(int argc, char *argv[])
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
-
-    const auto status = buildRuntimeStatus(telemetry, runtimeState);
+    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +

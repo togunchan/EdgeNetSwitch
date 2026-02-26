@@ -6,6 +6,7 @@ project(EdgeNetSwitch LANGUAGES CXX)
 # -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+option(ENABLE_DEBUG_READER "Enable debug snapshot reader thread" OFF)
 
 include(CTest)
 
@@ -62,15 +63,21 @@ target_compile_features(Config PUBLIC cxx_std_20)
 # -------------------------------------------------------
 add_library(Telemetry
     src/telemetry/Telemetry.cpp
+    src/telemetry/TelemetryExportManager.cpp
+    src/telemetry/InMemoryTelemetryExporter.cpp
+    src/telemetry/FileTelemetryExporter.cpp
 )
 
 target_include_directories(Telemetry
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(Telemetry
     PUBLIC
+        Logger
         MessagingBus
         Config
 )
@@ -97,6 +104,8 @@ target_compile_features(HealthMonitor PUBLIC cxx_std_20)
 add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
     src/daemon/ControlDispatch.cpp
+    src/daemon/RuntimeStatusBuilder.cpp
+    src/daemon/SnapshotPublisher.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon
@@ -111,9 +120,13 @@ target_link_libraries(EdgeNetSwitchDaemon
 target_include_directories(EdgeNetSwitchDaemon
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(EdgeNetSwitchDaemon PRIVATE cxx_std_20)
+if(ENABLE_DEBUG_READER)
+    target_compile_definitions(EdgeNetSwitchDaemon PRIVATE EDGENETSWITCH_DEBUG_READER)
+endif()
 
 # -------------------------------------------------------
 # Catch2 Submodule
@@ -205,6 +218,7 @@ if(BUILD_TESTING)
 
     add_executable(TelemetryTests
         tests/telemetry_tests.cpp
+        tests/telemetry_export_manager_tests.cpp
     )
 
     target_link_libraries(TelemetryTests
@@ -215,7 +229,7 @@ if(BUILD_TESTING)
             Catch2::Catch2WithMain
     )
 
-    target_include_directories(TelemetryTests PRIVATE include)
+    target_include_directories(TelemetryTests PRIVATE include src)
 
     add_test(NAME TelemetryTests COMMAND TelemetryTests)
 
@@ -244,6 +258,31 @@ if(BUILD_TESTING)
     )
 
     add_test(NAME HealthMonitorTests COMMAND HealthMonitorTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for SnapshotPublisher
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(SnapshotPublisherTests
+        tests/snapshot_publisher_tests.cpp
+        src/daemon/SnapshotPublisher.cpp
+    )
+
+    target_link_libraries(SnapshotPublisherTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(SnapshotPublisherTests
+        PRIVATE
+            include
+            src
+    )
+
+    add_test(NAME SnapshotPublisherTests COMMAND SnapshotPublisherTests)
 
 endif()
 
