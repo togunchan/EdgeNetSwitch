@@ -1,6 +1,6 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.4.0. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.5.0. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -51,7 +51,17 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - Stable error encoding on the wire (ERR / error_code / message / END).
 - No runtime mutation introduced; control plane remains read-only.
 
-### Intentionally not included (as of v1.4)
+### v1.5 – Persistent Telemetry
+- `FileTelemetryExporter` added and wired to write telemetry samples to `telemetry.log`.
+- File output uses append mode (`std::ios::out | std::ios::app`) so existing log contents are preserved across restarts.
+- `FileTelemetryExporter` uses an internal `std::mutex` to guard both `exportSample()` and teardown paths.
+- RAII teardown is deterministic: destructor takes the same lock, then `flush()`es and `close()`s the file stream when open.
+- Integrated into `TelemetryExportManager` during daemon startup as a third exporter beside stdout and in-memory exporters.
+- No changes to `SnapshotPublisher` or memory ordering semantics in this version increment.
+- No control protocol changes.
+- Export path remains synchronous in the runtime flow: telemetry publish triggers in-process callbacks and `TelemetryExportManager::exportSample()` runs inline.
+
+### Intentionally not included (as of v1.5)
 - Runtime mutation or control commands
 - Networking / switching logic
 - Yocto or QEMU integration
@@ -132,7 +142,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.4)
+## CLI usage (v1.5)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
