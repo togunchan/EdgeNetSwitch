@@ -15,6 +15,17 @@ namespace edgenetswitch::telemetry
         }
     }
 
+    FileTelemetryExporter::~FileTelemetryExporter()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (out_.is_open())
+        {
+            out_.flush();
+            out_.close();
+        }
+    }
+
     void FileTelemetryExporter::exportSample(const RuntimeMetrics &sample)
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -28,6 +39,7 @@ namespace edgenetswitch::telemetry
         if (!out_)
         {
             Logger::error("FileTelemetryExporter: failed to write sample to file: " + filePath_);
+            out_.clear();
         }
     }
 } // namespace edgenetswitch::telemetry

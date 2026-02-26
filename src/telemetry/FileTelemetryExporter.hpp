@@ -12,6 +12,7 @@ namespace edgenetswitch::telemetry
     {
     public:
         explicit FileTelemetryExporter(std::string path);
+        ~FileTelemetryExporter() override;
 
         void exportSample(const RuntimeMetrics &sample) override;
 
