@@ -231,3 +231,61 @@ TEST_CASE("TelemetryExportManager boundary cases", "[TelemetryExportManager]")
         REQUIRE(third_ptr->call_count == 1);
     }
 }
+
+TEST_CASE("TelemetryExportManager enqueue bounded queue behavior", "[TelemetryExportManager][enqueue]")
+{
+    constexpr std::size_t capacity = 2;
+    telemetry::TelemetryExportManager manager{capacity};
+
+    SECTION("enqueue adds samples up to capacity")
+    {
+        manager.enqueue(telemetry::TelemetrySample{});
+        REQUIRE(manager.queueSizeForTest() == 1);
+        REQUIRE(manager.droppedCountForTest() == 0);
+
+        manager.enqueue(telemetry::TelemetrySample{});
+        REQUIRE(manager.queueSizeForTest() == capacity);
+        REQUIRE(manager.droppedCountForTest() == 0);
+    }
+
+    SECTION("when capacity is exceeded, the oldest sample is dropped")
+    {
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+
+        REQUIRE(manager.queueSizeForTest() == capacity);
+        REQUIRE(manager.droppedCountForTest() == 1);
+    }
+
+    SECTION("droppedCountForTest increments correctly")
+    {
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(telemetry::TelemetrySample{});
+
+        REQUIRE(manager.droppedCountForTest() == 3);
+        REQUIRE(manager.queueSizeForTest() == capacity);
+    }
+
+    SECTION("queueSizeForTest never exceeds capacity")
+    {
+        for (int i = 0; i < 64; ++i)
+        {
+            manager.enqueue(telemetry::TelemetrySample{});
+            CHECK(manager.queueSizeForTest() <= capacity);
+        }
+
+        REQUIRE(manager.queueSizeForTest() == capacity);
+    }
+
+    SECTION("enqueue does not throw")
+    {
+        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
+        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
+        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
+        CHECK(noexcept(manager.enqueue(telemetry::TelemetrySample{})));
+    }
+}
