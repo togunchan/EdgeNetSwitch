@@ -69,11 +69,7 @@ namespace edgenetswitch::telemetry
             return; // already running
 
         export_thread_ = std::thread([this]()
-                                     {
-            while(running_.load(std::memory_order_relaxed)){
-                // We yield here to avoid aggressive busy-spinning until the real condition_variable-based consumer loop is implemented.
-                std::this_thread::yield();
-            } });
+                                     { exportLoop(); });
     }
 
     void TelemetryExportManager::stop()
@@ -86,6 +82,31 @@ namespace edgenetswitch::telemetry
 
         if (export_thread_.joinable())
             export_thread_.join();
+    }
+
+    void TelemetryExportManager::exportLoop()
+    {
+        while (true)
+        {
+            TelemetrySample sample;
+
+            {
+                std::unique_lock<std::mutex> lock(queue_mutex_);
+
+                queue_cv_.wait(lock, [this]()
+                               { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
+
+                if (queue_.empty() && !running_.load(std::memory_order_relaxed))
+                {
+                    return; // graceful exit
+                }
+
+                sample = std::move(queue_.front());
+                queue_.pop_front();
+            }
+
+            exportSample(sample);
+        }
     }
 
     std::size_t TelemetryExportManager::queueSizeForTest() const

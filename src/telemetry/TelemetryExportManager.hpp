@@ -51,5 +51,7 @@ namespace edgenetswitch::telemetry
         std::atomic<uint64_t> dropped_count_{0};
         std::thread export_thread_;
         std::atomic<bool> running_{false};
+
+        void exportLoop();
     };
 } // namespace edgenetswitch::telemetry
