@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "telemetry/StdoutTelemetryExporter.hpp"
+#include <thread>
 
 namespace edgenetswitch::telemetry
 {
@@ -32,8 +33,14 @@ namespace edgenetswitch::telemetry
 
         void enqueue(TelemetrySample sample) noexcept;
 
+        void start();
+
+        void stop();
+
+        /*_________Functions For Tests_______________*/
         std::size_t queueSizeForTest() const;
         uint64_t droppedCountForTest() const;
+        /*___________________________________________*/
 
     private:
         std::vector<std::unique_ptr<TelemetryExporter>> exporters_;
@@ -42,5 +49,7 @@ namespace edgenetswitch::telemetry
         mutable std::mutex queue_mutex_;
         std::condition_variable queue_cv_;
         std::atomic<uint64_t> dropped_count_{0};
+        std::thread export_thread_;
+        std::atomic<bool> running_{false};
     };
 } // namespace edgenetswitch::telemetry

@@ -62,6 +62,32 @@ namespace edgenetswitch::telemetry
         }
     }
 
+    void TelemetryExportManager::start()
+    {
+        bool expected = false;
+        if (!running_.compare_exchange_strong(expected, true))
+            return; // already running
+
+        export_thread_ = std::thread([this]()
+                                     {
+            while(running_.load(std::memory_order_relaxed)){
+                // We yield here to avoid aggressive busy-spinning until the real condition_variable-based consumer loop is implemented.
+                std::this_thread::yield();
+            } });
+    }
+
+    void TelemetryExportManager::stop()
+    {
+        bool expected = true;
+        if (!running_.compare_exchange_strong(expected, false))
+            return; // not running
+
+        queue_cv_.notify_all();
+
+        if (export_thread_.joinable())
+            export_thread_.join();
+    }
+
     std::size_t TelemetryExportManager::queueSizeForTest() const
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
