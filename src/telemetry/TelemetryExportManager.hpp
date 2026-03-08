@@ -17,7 +17,7 @@ namespace edgenetswitch::telemetry
     class TelemetryExportManager
     {
     public:
-        explicit TelemetryExportManager(std::size_t capacity = 1024) noexcept : capacity_(capacity) {}
+        explicit TelemetryExportManager(std::size_t capacity = 512) noexcept : capacity_(capacity) {}
         ~TelemetryExportManager() = default;
 
         // Non-copyable: owns exporters via unique_ptr.
@@ -37,10 +37,9 @@ namespace edgenetswitch::telemetry
 
         void stop();
 
-        /*_________Functions For Tests_______________*/
-        std::size_t queueSizeForTest() const;
-        uint64_t droppedCountForTest() const;
-        /*___________________________________________*/
+        std::size_t queueSize() const noexcept;
+
+        uint64_t droppedCount() const noexcept;
 
     private:
         std::vector<std::unique_ptr<TelemetryExporter>> exporters_;

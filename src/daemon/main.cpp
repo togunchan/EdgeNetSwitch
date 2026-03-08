@@ -283,6 +283,8 @@ int main(int argc, char *argv[])
     exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
     exportManager.addExporter(std::make_unique<FileTelemetryExporter>("telemetry.log"));
 
+    exportManager.start();
+
     {
 
         auto status = buildRuntimeStatus(
@@ -344,7 +346,8 @@ int main(int argc, char *argv[])
             RuntimeMetrics metrics{
                 .uptime_ms = data->uptime_ms,
                 .tick_count = data->tick_count};
-            exportManager.exportSample(metrics);
+
+            exportManager.enqueue(std::move(metrics));
         } });
 
     bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
@@ -390,6 +393,7 @@ int main(int argc, char *argv[])
     }
 
     destroyControlSocket(control_fd);
+    exportManager.stop();
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");

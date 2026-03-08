@@ -53,6 +53,10 @@ namespace edgenetswitch::telemetry
             }
 
             queue_.push_back(std::move(sample));
+
+            auto &back = queue_.back();
+            back.telemetry_queue_size = queue_.size();
+            back.telemetry_dropped_samples = dropped_count_.load(std::memory_order_relaxed);
             notify = true;
         }
 
@@ -106,18 +110,19 @@ namespace edgenetswitch::telemetry
             }
 
             exportSample(sample);
+
+            // std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
     }
 
-    std::size_t TelemetryExportManager::queueSizeForTest() const
+    std::size_t TelemetryExportManager::queueSize() const noexcept
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         return queue_.size();
     }
 
-    uint64_t TelemetryExportManager::droppedCountForTest() const
+    uint64_t TelemetryExportManager::droppedCount() const noexcept
     {
-        return dropped_count_.load();
+        return dropped_count_.load(std::memory_order_relaxed);
     }
-
 } // namespace edgenetswitch::telemetry

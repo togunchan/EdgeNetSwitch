@@ -240,12 +240,12 @@ TEST_CASE("TelemetryExportManager enqueue bounded queue behavior", "[TelemetryEx
     SECTION("enqueue adds samples up to capacity")
     {
         manager.enqueue(telemetry::TelemetrySample{});
-        REQUIRE(manager.queueSizeForTest() == 1);
-        REQUIRE(manager.droppedCountForTest() == 0);
+        REQUIRE(manager.queueSize() == 1);
+        REQUIRE(manager.droppedCount() == 0);
 
         manager.enqueue(telemetry::TelemetrySample{});
-        REQUIRE(manager.queueSizeForTest() == capacity);
-        REQUIRE(manager.droppedCountForTest() == 0);
+        REQUIRE(manager.queueSize() == capacity);
+        REQUIRE(manager.droppedCount() == 0);
     }
 
     SECTION("when capacity is exceeded, the oldest sample is dropped")
@@ -254,11 +254,11 @@ TEST_CASE("TelemetryExportManager enqueue bounded queue behavior", "[TelemetryEx
         manager.enqueue(telemetry::TelemetrySample{});
         manager.enqueue(telemetry::TelemetrySample{});
 
-        REQUIRE(manager.queueSizeForTest() == capacity);
-        REQUIRE(manager.droppedCountForTest() == 1);
+        REQUIRE(manager.queueSize() == capacity);
+        REQUIRE(manager.droppedCount() == 1);
     }
 
-    SECTION("droppedCountForTest increments correctly")
+    SECTION("droppedCount increments correctly")
     {
         manager.enqueue(telemetry::TelemetrySample{});
         manager.enqueue(telemetry::TelemetrySample{});
@@ -266,19 +266,19 @@ TEST_CASE("TelemetryExportManager enqueue bounded queue behavior", "[TelemetryEx
         manager.enqueue(telemetry::TelemetrySample{});
         manager.enqueue(telemetry::TelemetrySample{});
 
-        REQUIRE(manager.droppedCountForTest() == 3);
-        REQUIRE(manager.queueSizeForTest() == capacity);
+        REQUIRE(manager.droppedCount() == 3);
+        REQUIRE(manager.queueSize() == capacity);
     }
 
-    SECTION("queueSizeForTest never exceeds capacity")
+    SECTION("queueSize never exceeds capacity")
     {
         for (int i = 0; i < 64; ++i)
         {
             manager.enqueue(telemetry::TelemetrySample{});
-            CHECK(manager.queueSizeForTest() <= capacity);
+            CHECK(manager.queueSize() <= capacity);
         }
 
-        REQUIRE(manager.queueSizeForTest() == capacity);
+        REQUIRE(manager.queueSize() == capacity);
     }
 
     SECTION("enqueue does not throw")
