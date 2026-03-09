@@ -1,6 +1,6 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.5.0. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.6.0. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -59,9 +59,18 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - Integrated into `TelemetryExportManager` during daemon startup as a third exporter beside stdout and in-memory exporters.
 - No changes to `SnapshotPublisher` or memory ordering semantics in this version increment.
 - No control protocol changes.
-- Export path remains synchronous in the runtime flow: telemetry publish triggers in-process callbacks and `TelemetryExportManager::exportSample()` runs inline.
+- Export path is asynchronous in v1.6: telemetry publish triggers in-process callbacks and `TelemetryExportManager::enqueue()` returns without waiting for exporter I/O.
 
-### Intentionally not included (as of v1.5)
+### v1.6 – Asynchronous Telemetry Pipeline
+- Telemetry export moved off the runtime path: runtime telemetry callbacks enqueue snapshots and continue the deterministic tick loop.
+- Non-blocking enqueue model via `TelemetryExportManager::enqueue()` isolates runtime timing from exporter latency.
+- Bounded queue introduced in `TelemetryExportManager` (default capacity `512`) to cap memory growth.
+- Backpressure uses a drop-oldest policy when the queue is full; newest samples are retained.
+- Dedicated export worker thread (`start()` / `stop()`) drains the queue and dispatches to all exporters.
+- Worker wakeup and shutdown are coordinated with `std::condition_variable` to avoid busy-spinning.
+- Queue backpressure metrics are attached to exported samples: `queue_size` and `dropped_samples` (`telemetry_queue_size` / `telemetry_dropped_samples` in `RuntimeMetrics`).
+
+### Intentionally not included (as of v1.6)
 - Runtime mutation or control commands
 - Networking / switching logic
 - Yocto or QEMU integration
@@ -71,7 +80,7 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime.
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
 ```
 +-------------------------------------------------------------+
@@ -96,10 +105,12 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 ```
 
 ## Daemon loop & message flow
-- Startup: install signal handlers; load JSON config; initialize Logger, MessagingBus, Telemetry, HealthMonitor; open control socket and start control thread.
+- Startup: install signal handlers; load JSON config; initialize Logger, MessagingBus, Telemetry, HealthMonitor, `TelemetryExportManager`; open control socket; start control thread and export worker thread.
 - Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
+- Telemetry export path: `MessageType::Telemetry` callbacks build `RuntimeMetrics` and call `exportManager.enqueue()` (non-blocking); when full, queue backpressure drops the oldest sample.
+- Export worker: waits on `std::condition_variable`, drains queued samples, and invokes registered exporters off the runtime path.
 - Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
-- Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, publishes `SystemShutdown`, and closes the socket.
+- Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, stops/joins the export worker thread, publishes `SystemShutdown`, and closes the socket.
 - Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
 
 ```cpp
@@ -142,7 +153,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.5)
+## CLI usage (v1.6)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
