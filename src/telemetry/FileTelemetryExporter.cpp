@@ -34,7 +34,11 @@ namespace edgenetswitch::telemetry
             return;
         }
 
-        out_ << "uptime_ms=" << sample.uptime_ms << ',' << "tick_count=" << sample.tick_count << '\n';
+        out_ << "uptime_ms=" << sample.uptime_ms
+             << ",tick_count=" << sample.tick_count
+             << ",queue_size=" << sample.telemetry_queue_size
+             << ",dropped=" << sample.telemetry_dropped_samples
+             << '\n';
 
         if (!out_)
         {
