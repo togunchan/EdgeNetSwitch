@@ -13,6 +13,7 @@
 #include "telemetry/InMemoryTelemetryExporter.hpp"
 #include "telemetry/FileTelemetryExporter.hpp"
 #include "SnapshotPublisher.hpp"
+#include "edgenetswitch/packet/PacketGenerator.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -275,6 +276,7 @@ int main(int argc, char *argv[])
     RuntimeState runtimeState = RuntimeState::Booting;
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
+    PacketGenerator packetGenerator(bus);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -378,6 +380,7 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
+        packetGenerator.onTick(nowMs());
 
         auto status =
             buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
