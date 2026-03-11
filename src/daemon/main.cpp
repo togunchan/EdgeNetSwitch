@@ -365,6 +365,11 @@ int main(int argc, char *argv[])
             Logger::debug("HealthStatus: alive");
         } });
 
+    bus.subscribe(MessageType::PacketRx, [](const Message &msg)
+                  {
+        const Packet &p = std::get<Packet>(msg.payload);
+        Logger::info("Packet received id=" + std::to_string(p.id)); });
+
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;
 
