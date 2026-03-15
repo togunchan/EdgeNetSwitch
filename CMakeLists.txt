@@ -307,3 +307,26 @@ if(BUILD_TESTING)
     add_test(NAME HealthMonitorTransitionTests COMMAND HealthMonitorTransitionTests)
 
 endif()
+
+# -------------------------------------------------------
+# Unit Tests for Packet pipeline
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(PacketPipelineTests
+        tests/packet_pipeline_tests.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+    )
+
+    target_link_libraries(PacketPipelineTests
+        PRIVATE
+            MessagingBus
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(PacketPipelineTests PRIVATE include)
+
+    add_test(NAME PacketPipelineTests COMMAND PacketPipelineTests)
+
+endif()
