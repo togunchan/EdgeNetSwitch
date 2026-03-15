@@ -13,7 +13,7 @@ namespace edgenetswitch
 
     private:
         MessagingBus &bus_;
-        uint64_t packet_id_{0};
+        std::uint64_t packet_id_{0};
     };
 
 } // namespace edgenetswitch

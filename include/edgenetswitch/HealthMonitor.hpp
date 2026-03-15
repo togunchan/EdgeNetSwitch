@@ -11,7 +11,7 @@ namespace edgenetswitch
     struct HealthSnapshot
     {
         bool alive;
-        uint64_t timeout_ms;
+        std::uint64_t timeout_ms;
     };
 
     class HealthMonitor

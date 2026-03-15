@@ -39,7 +39,7 @@ namespace edgenetswitch::telemetry
 
         std::size_t queueSize() const noexcept;
 
-        uint64_t droppedCount() const noexcept;
+        std::uint64_t droppedCount() const noexcept;
 
     private:
         std::vector<std::unique_ptr<TelemetryExporter>> exporters_;
@@ -47,7 +47,7 @@ namespace edgenetswitch::telemetry
         std::size_t capacity_;
         mutable std::mutex queue_mutex_;
         std::condition_variable queue_cv_;
-        std::atomic<uint64_t> dropped_count_{0};
+        std::atomic<std::uint64_t> dropped_count_{0};
         std::thread export_thread_;
         std::atomic<bool> running_{false};
 

@@ -121,7 +121,7 @@ namespace edgenetswitch::telemetry
         return queue_.size();
     }
 
-    uint64_t TelemetryExportManager::droppedCount() const noexcept
+    std::uint64_t TelemetryExportManager::droppedCount() const noexcept
     {
         return dropped_count_.load(std::memory_order_relaxed);
     }
