@@ -1,11 +1,44 @@
 # EdgeNetSwitch
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.6.0. Control protocol v1.2 (semantics stabilized).
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-v1.7-orange)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.7.0. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
 - Focuses on deterministic daemon design with built-in observability so runtime behavior is explainable.
 - Keeps architecture explicit and testable, enabling confident iteration before hardware bring-up.
+
+## Quick Start
+Minimal local run flow:
+
+```bash
+git clone https://github.com/togunchan/EdgeNetSwitch.git
+cd EdgeNetSwitch
+git submodule update --init --recursive
+
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build
+
+./build/EdgeNetSwitchDaemon
+```
+
+The daemon runs a deterministic, tick-driven runtime loop.
+
+External I/O such as telemetry export and control commands are isolated
+from the runtime tick loop.
+
+The control socket is exposed at:
+`/tmp/edgenetswitch.sock`
+
+Example query:
+
+```bash
+echo "1.2|status" | nc -U /tmp/edgenetswitch.sock
+```
 
 ## Scope
 
@@ -59,7 +92,7 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - Integrated into `TelemetryExportManager` during daemon startup as a third exporter beside stdout and in-memory exporters.
 - No changes to `SnapshotPublisher` or memory ordering semantics in this version increment.
 - No control protocol changes.
-- Export path is asynchronous in v1.6: telemetry publish triggers in-process callbacks and `TelemetryExportManager::enqueue()` returns without waiting for exporter I/O.
+- The export path was later moved off the runtime path in v1.6.
 
 ### v1.6 – Asynchronous Telemetry Pipeline
 - Telemetry export moved off the runtime path: runtime telemetry callbacks enqueue snapshots and continue the deterministic tick loop.
@@ -70,9 +103,33 @@ Virtual embedded Linux edge device platform for deterministic, testable user-spa
 - Worker wakeup and shutdown are coordinated with `std::condition_variable` to avoid busy-spinning.
 - Queue backpressure metrics are attached to exported samples: `queue_size` and `dropped_samples` (`telemetry_queue_size` / `telemetry_dropped_samples` in `RuntimeMetrics`).
 
-### Intentionally not included (as of v1.6)
+### v1.7 – Virtual Packet Pipeline
+- Introduces a virtual data plane used to exercise packet processing behavior before real NIC or kernel integration.
+- `PacketGenerator` emits synthetic packets and publishes `MessageType::PacketRx`.
+- `PacketProcessor` subscribes to `MessageType::PacketRx`, processes packet payloads, and publishes `MessageType::PacketProcessed`.
+- `PacketStats` subscribes to `MessageType::PacketProcessed` and accumulates packet counters.
+- Event pipeline:
+
+```text
+PacketGenerator
+    ↓
+MessageType::PacketRx
+    ↓
+PacketProcessor
+    ↓
+MessageType::PacketProcessed
+    ↓
+PacketStats
+```
+
+- Packet metrics are exposed through the control plane:
+  `echo "1.2|packet-stats" | nc -U /tmp/edgenetswitch.sock`
+- Example response fields:
+  `rx_packets`, `rx_bytes`, `drops`
+
+### Intentionally not included (as of v1.7)
 - Runtime mutation or control commands
-- Networking / switching logic
+- Real NIC or kernel networking integration
 - Yocto or QEMU integration
 - Remote TCP/IP management
 - Authentication or authorization
@@ -83,25 +140,38 @@ Deferred to keep the runtime deterministic, avoid premature coupling to hardware
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
 ```
-+-------------------------------------------------------------+
-| Runtime core (tick loop)                                    |
-|                                                             |
-|  +-----------+     +---------------+     +---------------+  |
-|  | Telemetry |-->  | MessagingBus  | <-> | HealthMonitor |  |
-|  +-----------+     +-------+-------+     +---------------+  |
-|        |                   |                    ^           |
-|        |                   v                    |           |
-|        +---------------> Logger <---------------+           |
-+-------------------------------------------------------------+
-                              |
-                              v
-            +--------------------------------------+
-            |      Control thread (non-block)      |
-            | UNIX socket: /tmp/edgenetswitch.sock |
-            +--------------------------------------+
-                              |
-                              v
-                             CLI
++------------------------------------------------------------------------------------+
+| Runtime Plane (deterministic tick loop)                                            |
+|                                                                                    |
+|  tick -> Telemetry -------------------+                                            |
+|       -> HealthMonitor                |                                            |
+|       -> PacketGenerator---PacketRx-->|                                            |
+|                                       v                                            |
+|                            +-----------------------+                               |
+|                            |      MessagingBus     |  internal event backbone      |
+|                            +-----+-----------+-----+                               |
+|                                  |           |                                     |
+|                                  |           +--> PacketProcessor                  |
+|                                  |                 |                               |
+|                                  |                 +--PacketProcessed-->PacketStats|
+|                                  |                                                 |
+|                                  +--> Telemetry sample -> RuntimeMetrics           |
+|                                                                                    |
+|  Telemetry + HealthMonitor + PacketStats                                           |
+|                               v                                                    |
+|                        Runtime snapshot                                            |
+|                               v                                                    |
+|                        SnapshotPublisher                                           |
++------------------------------------------------------------------------------------+
+                 |                                            |
+                 v                                            v
++-------------------------------------------+   +------------------------------------+
+| Export Path (off tick thread)             |   | Control Plane (out-of-band)        |
+| TelemetryExportManager (bounded queue)    |   | Control thread                     |
+|   -> export worker thread                 |   |   -> UNIX socket                   |
+|   -> exporters (stdout / memory / file)   |   |      /tmp/edgenetswitch.sock       |
++-------------------------------------------+   |   -> CLI / edgenetctl / nc         |
+                                                +------------------------------------+
 ```
 
 ## Daemon loop & message flow
@@ -153,11 +223,12 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.6)
+## CLI usage (v1.7)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
 - Query metrics: `./build/EdgeNetSwitchDaemon metrics`
+- Query packet statistics: `./build/EdgeNetSwitchDaemon packet-stats`
 - Query version: `./build/EdgeNetSwitchDaemon version`
 - Help summary: `./build/EdgeNetSwitchDaemon help`
 - Help for a command (detailed introspection): `./build/EdgeNetSwitchDaemon help <command>`
@@ -217,6 +288,41 @@ Errors are part of the protocol contract, not implementation details. Each error
 - Adding a new control command requires only extending the dispatch table; no socket or CLI changes are needed.
 - Dispatch metadata is the single source of truth for command definitions and help output.
 
+### Packet Pipeline Testing
+Packet pipeline behavior is validated using Catch2 unit tests.
+
+- packet event propagation through `MessagingBus`
+- packet metric accumulation
+- invalid payload handling
+- pipeline stability across multiple packets
+
+## Project Goals
+- Deterministic daemon architecture.
+- Explicit runtime/control-plane separation.
+- Observable runtime behavior through control-plane snapshots and telemetry.
+- Testable subsystems with focused unit tests.
+- Architecture experimentation before hardware exists.
+
+## Non-Goals
+The project intentionally avoids:
+
+- Production network switching.
+- Kernel driver development.
+- Hardware BSP integration.
+- Real-time guarantees.
+
+These may appear in later stages as the architecture matures.
+
+## Project Status
+EdgeNetSwitch is an experimental systems architecture project exploring
+deterministic daemon design for edge devices.
+
+The runtime core and control protocol are stable.
+
+Current development focuses on evolving the packet pipeline
+and preparing the architecture for eventual networking
+and embedded Linux integration.
+
 ## Build, run, test
 ```bash
 git submodule update --init --recursive
@@ -236,6 +342,15 @@ cmake --build build
 # Unit tests
 ctest --test-dir build
 ```
+
+## Contributing
+EdgeNetSwitch is primarily a personal systems architecture project, but contributions and technical discussion are welcome.
+
+Open an issue for:
+
+- Architecture ideas
+- Runtime experiments
+- Documentation improvements
 
 ## Contact
 [![LinkedIn - Murat Toğunçhan Düzgün](https://img.shields.io/badge/LinkedIn-Murat%20To%C4%9Fun%C3%A7han%20D%C3%BCzg%C3%BCn-blue.svg)](https://www.linkedin.com/in/togunchan/)
