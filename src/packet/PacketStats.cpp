@@ -4,13 +4,12 @@ namespace edgenetswitch
 {
     PacketStats::PacketStats(MessagingBus &bus)
     {
-        bus.subscribe(MessageType::PacketRx, [this](const Message &msg)
+        bus.subscribe(MessageType::PacketProcessed, [this](const Message &msg)
                       {
                           const Packet &p = std::get<Packet>(msg.payload);
 
                           rx_packets_.fetch_add(1, std::memory_order_relaxed);
-                          rx_bytes_.fetch_add(p.size_bytes, std::memory_order_relaxed);
-                      });
+                          rx_bytes_.fetch_add(p.size_bytes, std::memory_order_relaxed); });
     }
 
     PacketMetrics PacketStats::snapshot() const

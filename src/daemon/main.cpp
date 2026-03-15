@@ -15,6 +15,7 @@
 #include "runtime/SnapshotPublisher.hpp"
 #include "edgenetswitch/packet/PacketGenerator.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/packet/PacketProcessor.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -278,6 +279,7 @@ int main(int argc, char *argv[])
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
     PacketGenerator packetGenerator(bus);
+    PacketProcessor packetProcessor(bus);
     PacketStats packetStats(bus);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();

@@ -107,14 +107,12 @@ add_executable(EdgeNetSwitchDaemon
     src/runtime/RuntimeStatusBuilder.cpp
     src/runtime/SnapshotPublisher.cpp
     src/packet/PacketGenerator.cpp
+    src/packet/PacketProcessor.cpp
     src/packet/PacketStats.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon
     PRIVATE
-        Logger
-        MessagingBus
-        Config
         Telemetry
         HealthMonitor
 )
