@@ -1,4 +1,4 @@
-#include "edgenetswitch/Logger.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 #include <iostream>
 #include <chrono>
 #include <iomanip>

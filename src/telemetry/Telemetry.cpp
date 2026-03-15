@@ -1,4 +1,4 @@
-#include "edgenetswitch/Telemetry.hpp"
+#include "edgenetswitch/telemetry/Telemetry.hpp"
 
 #include <chrono>
 #include <variant>

@@ -1,5 +1,5 @@
 #include "TelemetryExportManager.hpp"
-#include "edgenetswitch/Logger.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 
 namespace edgenetswitch::telemetry
 {

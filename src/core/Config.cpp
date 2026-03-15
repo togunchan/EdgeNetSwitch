@@ -1,4 +1,4 @@
-#include "edgenetswitch/Config.hpp"
+#include "edgenetswitch/core/Config.hpp"
 
 #include <fstream>
 #include <stdexcept>

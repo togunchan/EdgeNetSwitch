@@ -1,5 +1,5 @@
 #include <catch2/catch_all.hpp>
-#include "edgenetswitch/Logger.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 #include <filesystem>
 
 TEST_CASE("Logger writes basic messages", "[logger]")

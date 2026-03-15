@@ -14,7 +14,7 @@ include(CTest)
 # Logger Module
 # -------------------------------------------------------
 add_library(Logger
-    src/utils/Logger.cpp
+    src/core/Logger.cpp
 )
 
 target_include_directories(Logger
@@ -43,7 +43,7 @@ target_compile_features(MessagingBus PUBLIC cxx_std_20)
 # Config Module
 # -------------------------------------------------------
 add_library(Config
-    src/utils/Config.cpp
+    src/core/Config.cpp
 )
 
 target_include_directories(Config
@@ -88,7 +88,7 @@ target_compile_features(Telemetry PUBLIC cxx_std_20)
 # HealthMonitor Module
 # -------------------------------------------------------
 add_library(HealthMonitor
-    src/health/HealthMonitor.cpp
+    src/runtime/HealthMonitor.cpp
 )
 
 target_include_directories(HealthMonitor
@@ -103,9 +103,9 @@ target_compile_features(HealthMonitor PUBLIC cxx_std_20)
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
-    src/daemon/ControlDispatch.cpp
-    src/daemon/RuntimeStatusBuilder.cpp
-    src/daemon/SnapshotPublisher.cpp
+    src/control/ControlDispatch.cpp
+    src/runtime/RuntimeStatusBuilder.cpp
+    src/runtime/SnapshotPublisher.cpp
     src/packet/PacketGenerator.cpp
     src/packet/PacketStats.cpp
 )
@@ -270,7 +270,7 @@ if(BUILD_TESTING)
 
     add_executable(SnapshotPublisherTests
         tests/snapshot_publisher_tests.cpp
-        src/daemon/SnapshotPublisher.cpp
+        src/runtime/SnapshotPublisher.cpp
     )
 
     target_link_libraries(SnapshotPublisherTests

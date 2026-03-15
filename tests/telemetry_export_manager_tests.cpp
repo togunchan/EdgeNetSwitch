@@ -3,7 +3,7 @@
 #include "telemetry/TelemetryExportManager.hpp"
 #include "telemetry/InMemoryTelemetryExporter.hpp"
 #include "telemetry/TelemetryExporter.hpp"
-#include "edgenetswitch/RuntimeMetrics.hpp"
+#include "edgenetswitch/runtime/RuntimeMetrics.hpp"
 
 #include <memory>
 #include <stdexcept>

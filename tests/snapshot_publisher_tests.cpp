@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/daemon/SnapshotPublisher.hpp"
+#include "../src/runtime/SnapshotPublisher.hpp"
 
 #include <atomic>
 #include <cstdint>

@@ -19,7 +19,8 @@ namespace edgenetswitch
         HealthStatus,
         Telemetry,
         Health,
-        PacketRx
+        PacketRx,
+        PacketProcessed
     };
 
     struct TelemetryData

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "edgenetswitch/RuntimeStatus.hpp"
+#include "edgenetswitch/runtime/RuntimeStatus.hpp"
 
 #include <atomic>
 #include <cstdint>

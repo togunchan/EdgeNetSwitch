@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/Config.hpp"
+#include "edgenetswitch/core/Config.hpp"
 
 #include <filesystem>
 #include <fstream>

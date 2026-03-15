@@ -4,8 +4,8 @@
 
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
-#include "SnapshotPublisher.hpp"
-#include "edgenetswitch/RuntimeStatus.hpp"
+#include "runtime/SnapshotPublisher.hpp"
+#include "edgenetswitch/runtime/RuntimeStatus.hpp"
 
 namespace edgenetswitch::control
 {

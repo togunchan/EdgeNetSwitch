@@ -1,7 +1,7 @@
 #include "RuntimeStatusBuilder.hpp"
 
-#include "edgenetswitch/HealthMonitor.hpp"
-#include "edgenetswitch/Telemetry.hpp"
+#include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/telemetry/Telemetry.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
 
 namespace edgenetswitch

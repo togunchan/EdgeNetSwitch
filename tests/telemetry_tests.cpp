@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/Telemetry.hpp"
-#include "edgenetswitch/MessagingBus.hpp"
-#include "edgenetswitch/Config.hpp"
+#include "edgenetswitch/telemetry/Telemetry.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/core/Config.hpp"
 
 #include <optional>
 

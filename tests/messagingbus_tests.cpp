@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/MessagingBus.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
 
 using namespace edgenetswitch;
 

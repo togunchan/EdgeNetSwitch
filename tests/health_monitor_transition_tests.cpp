@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/HealthMonitor.hpp"
-#include "edgenetswitch/MessagingBus.hpp"
+#include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
 
 #include <thread>
 

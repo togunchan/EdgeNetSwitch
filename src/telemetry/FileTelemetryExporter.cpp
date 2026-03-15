@@ -1,6 +1,6 @@
 #include "telemetry/FileTelemetryExporter.hpp"
 
-#include "edgenetswitch/Logger.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 #include <utility>
 
 namespace edgenetswitch::telemetry

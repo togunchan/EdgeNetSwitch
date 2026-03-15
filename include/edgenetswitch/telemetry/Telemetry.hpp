@@ -1,8 +1,8 @@
 #pragma once
 
-#include "edgenetswitch/MessagingBus.hpp"
-#include "edgenetswitch/Config.hpp"
-#include "edgenetswitch/RuntimeMetrics.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/runtime/RuntimeMetrics.hpp"
 
 #include <cstdint>
 
