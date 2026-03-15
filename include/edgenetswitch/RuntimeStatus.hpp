@@ -2,6 +2,8 @@
 
 #include "edgenetswitch/MessagingBus.hpp"
 #include "edgenetswitch/RuntimeMetrics.hpp"
+#include "edgenetswitch/packet/PacketStats.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -38,6 +40,7 @@ namespace edgenetswitch
         RuntimeState state; // booting, running, stopping etc...
         std::uint64_t snapshot_timestamp_ms{};
         std::uint64_t snapshot_version{};
+        PacketMetrics packet;
     };
 
 } // namespace edgenetswitch

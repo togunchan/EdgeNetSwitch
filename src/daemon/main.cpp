@@ -294,6 +294,7 @@ int main(int argc, char *argv[])
         auto status = buildRuntimeStatus(
             telemetry,
             healthMonitor,
+            packetStats,
             runtimeState,
             nowMs());
 
@@ -385,7 +386,7 @@ int main(int argc, char *argv[])
         packetGenerator.onTick(nowMs());
 
         auto status =
-            buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
+            buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
 
         g_snapshotPublisher.publish(status);
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
@@ -407,7 +408,7 @@ int main(int argc, char *argv[])
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
-    const auto status = buildRuntimeStatus(telemetry, healthMonitor, runtimeState, nowMs());
+    const auto status = buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +

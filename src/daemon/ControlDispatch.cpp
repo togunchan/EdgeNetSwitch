@@ -149,6 +149,23 @@ namespace edgenetswitch::control
         return ControlResponse{.success = true, .payload = payload};
     }
 
+    static ControlResponse handlePacketStats(const ControlContext &ctx, const std::string &)
+    {
+        ControlResponse err{};
+        auto snap = loadSnapshot(ctx, err);
+        if (!snap)
+        {
+            return err;
+        }
+
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "rx_packets=" + std::to_string(snap->packet.rx_packets) + "\n" +
+                "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n" +
+                "drops=" + std::to_string(snap->packet.drops)};
+    }
+
     static const CommandTable &commandTable()
     {
         // Static dispatch table:
@@ -185,7 +202,15 @@ namespace edgenetswitch::control
              {.name = "help",
               .description = "command listing",
               .fields = {"commands"},
-              .handler = handleHelp}}};
+              .handler = handleHelp}},
+
+            {"packet-stats",
+             {.name = "packet-stats",
+              .description = "packet pipeline statistics",
+              .fields = {"rx_packets", "rx_bytes", "drops"},
+              .handler = handlePacketStats}},
+
+        };
         return table;
     }
 
