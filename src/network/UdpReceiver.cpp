@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include "edgenetswitch/core/Logger.hpp"
 
 namespace edgenetswitch
 {
@@ -79,10 +80,27 @@ namespace edgenetswitch
 
         while (running_)
         {
-            ssize_t len = recvfrom(sockfd_, buffer, sizeof(buffer), 0, nullptr, nullptr);
+            sockaddr_in client_addr{};
+            socklen_t addr_len = sizeof(client_addr);
 
-            if (len <= 0)
+            ssize_t len = recvfrom(sockfd_, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
+
+            if (len < 0)
+            {
+                if (errno == EBADF)
+                    break; // socket closed, exit thread cleanly
+
+                if (errno == EINTR)
+                    continue;
+
+                Logger::error("recvfrom failed: " + std::string(strerror(errno)));
                 continue;
+            }
+
+            std::string data(buffer, static_cast<size_t>(len));
+            Logger::info("UDP packet received: " + data);
+
+            sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 
             Packet packet{};
             packet.timestamp_ms = 0; // dummy for now
