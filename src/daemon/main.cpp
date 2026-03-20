@@ -282,16 +282,21 @@ int main(int argc, char *argv[])
     PacketGenerator packetGenerator(bus);
     PacketProcessor packetProcessor(bus);
     PacketStats packetStats(bus);
-    UdpReceiver udp(bus, 9000);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
     std::thread controlThread;
+    std::unique_ptr<UdpReceiver> udpReceiver;
+
+    if (cfg.udp.enabled)
+    {
+        udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port);
+        udpReceiver->start();
+    }
 
     exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
     exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
     exportManager.addExporter(std::make_unique<FileTelemetryExporter>("telemetry.log"));
 
-    udp.start();
     exportManager.start();
 
     {
@@ -408,6 +413,12 @@ int main(int argc, char *argv[])
     }
 
     destroyControlSocket(control_fd);
+
+    if (udpReceiver)
+    {
+        udpReceiver->stop();
+    }
+
     exportManager.stop();
 
     runtimeState = RuntimeState::Stopping;

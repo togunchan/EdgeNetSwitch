@@ -99,11 +99,15 @@ namespace edgenetswitch
 
         json logJson = objectOrEmpty(j, "log");
         json daemonJson = objectOrEmpty(j, "daemon");
+        json udpJson = objectOrEmpty(j, "udp");
 
         cfg.log.level = logJson.value("level", "info");
         cfg.log.file = logJson.value("file", "edgenetswitch.log");
 
         cfg.daemon.tick_ms = daemonJson.value("tick_ms", 100);
+
+        cfg.udp.enabled = udpJson.value("enabled", false);
+        cfg.udp.port = udpJson.value("port", 9000);
 
         return cfg;
     }
