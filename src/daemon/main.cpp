@@ -16,6 +16,7 @@
 #include "edgenetswitch/packet/PacketGenerator.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
+#include "edgenetswitch/network/UdpReceiver.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -281,6 +282,7 @@ int main(int argc, char *argv[])
     PacketGenerator packetGenerator(bus);
     PacketProcessor packetProcessor(bus);
     PacketStats packetStats(bus);
+    UdpReceiver udp(bus, 9000);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
     std::thread controlThread;
@@ -289,10 +291,10 @@ int main(int argc, char *argv[])
     exportManager.addExporter(std::make_unique<InMemoryTelemetryExporter>());
     exportManager.addExporter(std::make_unique<FileTelemetryExporter>("telemetry.log"));
 
+    udp.start();
     exportManager.start();
 
     {
-
         auto status = buildRuntimeStatus(
             telemetry,
             healthMonitor,
@@ -385,7 +387,7 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
-        packetGenerator.onTick(nowMs());
+        // packetGenerator.onTick(nowMs());
 
         auto status =
             buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());

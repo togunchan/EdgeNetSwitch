@@ -109,6 +109,7 @@ add_executable(EdgeNetSwitchDaemon
     src/packet/PacketGenerator.cpp
     src/packet/PacketProcessor.cpp
     src/packet/PacketStats.cpp
+    src/network/UdpReceiver.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon
