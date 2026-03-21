@@ -17,6 +17,7 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/network/UdpReceiver.hpp"
+#include "edgenetswitch/core/TimeUtils.hpp"
 
 #include <atomic>
 #include <csignal>
@@ -47,13 +48,6 @@ namespace
     {
         std::signal(SIGINT, handleSignal);
         std::signal(SIGTERM, handleSignal);
-    }
-
-    std::uint64_t nowMs()
-    {
-        using namespace std::chrono;
-        return static_cast<std::uint64_t>(
-            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
     }
 
     constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
@@ -365,7 +359,7 @@ int main(int argc, char *argv[])
         } });
 
     bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
-                  {
+                  {    
         const auto *hs = std::get_if<HealthStatus>(&msg.payload);
         if (!hs)
             return;
@@ -381,8 +375,11 @@ int main(int argc, char *argv[])
 
     bus.subscribe(MessageType::PacketRx, [](const Message &msg)
                   {
-        const Packet &p = std::get<Packet>(msg.payload);
-        Logger::info("Packet received id=" + std::to_string(p.id)); });
+    const Packet &p = std::get<Packet>(msg.payload);
+    Logger::info(
+        "Packet received: id=" + std::to_string(p.id) +
+        " payload=" + p.payload +
+        " timestamp=" + formatTimestamp(p.timestamp_ms)); });
 
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;

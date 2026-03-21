@@ -41,8 +41,10 @@ namespace edgenetswitch
     struct Packet
     {
         std::uint64_t id{0};
+        std::string payload;
         std::uint64_t timestamp_ms{0};
         std::uint32_t size_bytes{0};
+        bool valid{false};
     };
 
     struct Message

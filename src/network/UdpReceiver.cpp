@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include "edgenetswitch/core/Logger.hpp"
+#include "edgenetswitch/core/TimeUtils.hpp"
+#include "edgenetswitch/packet/PacketParser.hpp"
 
 namespace edgenetswitch
 {
@@ -99,19 +101,22 @@ namespace edgenetswitch
 
             std::string data(buffer, static_cast<size_t>(len));
             Logger::info("UDP packet received: " + data);
+            auto packet = parsePacket(data);
+            if (!packet.valid)
+            {
+                Logger::warn("Invalid packet dropped: " + data);
+                continue;
+            }
+            packet.timestamp_ms = nowMs();
 
             sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
-
-            Packet packet{};
-            packet.timestamp_ms = 0; // dummy for now
-            packet.size_bytes = static_cast<std::uint32_t>(len);
 
             Message msg{};
             msg.type = MessageType::PacketRx;
             msg.timestamp_ms = packet.timestamp_ms;
-            msg.payload = packet;
+            msg.payload = std::move(packet);
 
-            bus_.publish(msg);
+            bus_.publish(std::move(msg));
         }
     }
 } // namespace edgenetswitch
