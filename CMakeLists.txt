@@ -131,6 +131,27 @@ if(ENABLE_DEBUG_READER)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for Packet parser
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(PacketParserTests
+        tests/packet_parser_tests.cpp
+        src/packet/PacketParser.cpp
+    )
+
+    target_link_libraries(PacketParserTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(PacketParserTests PRIVATE include)
+
+    add_test(NAME PacketParserTests COMMAND PacketParserTests)
+
+endif()
+
+# -------------------------------------------------------
 # Catch2 Submodule
 # -------------------------------------------------------
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/Catch2/CMakeLists.txt")
