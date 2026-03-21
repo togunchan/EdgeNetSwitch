@@ -2,10 +2,10 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.7-orange)
+![Version](https://img.shields.io/badge/version-v1.8-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.7.0. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.0. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -38,6 +38,12 @@ Example query:
 
 ```bash
 echo "1.2|status" | nc -U /tmp/edgenetswitch.sock
+```
+
+### UDP Example (v1.8)
+(daemon must be running)
+```bash
+echo "id=42;payload=hello" | nc -u -w1 127.0.0.1 9000
 ```
 
 ## Scope
@@ -127,26 +133,56 @@ PacketStats
 - Example response fields:
   `rx_packets`, `rx_bytes`, `drops`
 
-### Intentionally not included (as of v1.7)
+### v1.8 – Real UDP Networking
+- Introduces real UDP-based packet ingestion via `recvfrom()`.
+- Configurable UDP ingress port (default `9000`).
+- `PacketParser` validates and extracts packet fields from raw UDP data.
+- UDP-ingested `PacketRx` events are timestamped at ingress via `nowMs()`.
+- Both PacketGenerator (synthetic) and UDP ingress (real) produce PacketRx events that are published into the MessagingBus.
+- Echo response implemented via `sendto()`.
+- `PacketStats` is updated from real incoming packets.
+- Event pipeline:
+
+```text
+UDP Socket
+    ↓
+PacketParser (validate)
+    ↓
+PacketRx (timestamp=nowMs)
+    ↓
+MessagingBus
+```
+
+### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
-- Real NIC or kernel networking integration
+- Raw NIC driver or kernel data-plane integration
 - Yocto or QEMU integration
 - Remote TCP/IP management
 - Authentication or authorization
 - Hard real-time guarantees
-Deferred to keep the runtime deterministic, avoid premature coupling to hardware/network stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
+Deferred to keep the runtime deterministic, avoid premature coupling to hardware-specific data-plane stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
 
 ## Runtime & control-plane architecture
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
 ```
++-------------------------------------------+
+| Network Ingress (v1.8)                    |
+|   UDP Socket (recvfrom)                   |
+|        -> PacketParser (validate)         |
+|        -> PacketRx (timestamp=nowMs)      |
++--------------------+----------------------+
+                     |
+                     v
 +------------------------------------------------------------------------------------+
 | Runtime Plane (deterministic tick loop)                                            |
 |                                                                                    |
 |  tick -> Telemetry -------------------+                                            |
 |       -> HealthMonitor                |                                            |
-|       -> PacketGenerator---PacketRx-->|                                            |
-|                                       v                                            |
+|       -> PacketGenerator -----------+                                            |
+|                                     |                                            |
+|  UDP Ingress (recvfrom) ------------+----> PacketRx ---->                        |
+|                                                           v                        |
 |                            +-----------------------+                               |
 |                            |      MessagingBus     |  internal event backbone      |
 |                            +-----+-----------+-----+                               |
@@ -223,7 +259,7 @@ int main(int argc, char** argv) {
 }
 ```
 
-## CLI usage (v1.7)
+## CLI usage (v1.8)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
 - Query health: `./build/EdgeNetSwitchDaemon health`
@@ -319,9 +355,16 @@ deterministic daemon design for edge devices.
 
 The runtime core and control protocol are stable.
 
-Current development focuses on evolving the packet pipeline
-and preparing the architecture for eventual networking
-and embedded Linux integration.
+Current development focuses on hardening the UDP-integrated packet pipeline,
+which is now driven by real network traffic, and transitioning the system
+from simulation-oriented flows toward broader real I/O integration.
+
+The system has transitioned from fully synthetic packet simulation (v1.7)
+to hybrid operation with real UDP-based packet ingress (v1.8).
+
+Current focus is on stabilizing real I/O integration while preserving
+deterministic runtime guarantees, preparing the architecture for
+stateful packet forwarding (v1.9).
 
 ## Build, run, test
 ```bash
