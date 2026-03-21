@@ -172,17 +172,16 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 |        -> PacketParser (validate)         |
 |        -> PacketRx (timestamp=nowMs)      |
 +--------------------+----------------------+
-                     |
+                     | (event injection)
                      v
 +------------------------------------------------------------------------------------+
 | Runtime Plane (deterministic tick loop)                                            |
 |                                                                                    |
-|  tick -> Telemetry -------------------+                                            |
-|       -> HealthMonitor                |                                            |
-|       -> PacketGenerator -----------+                                            |
-|                                     |                                            |
-|  UDP Ingress (recvfrom) ------------+----> PacketRx ---->                        |
-|                                                           v                        |
+|  tick -> Telemetry -----------------------------+                                  |
+|       -> HealthMonitor -------------------------+                                  |
+|       -> PacketGenerator -----------------------+                                  |
+|                                                 |                                  |
+|                                                 v                                  |
 |                            +-----------------------+                               |
 |                            |      MessagingBus     |  internal event backbone      |
 |                            +-----+-----------+-----+                               |
