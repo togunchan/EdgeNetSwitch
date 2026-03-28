@@ -45,6 +45,8 @@ namespace edgenetswitch
         std::uint64_t timestamp_ms{0};
         std::uint32_t size_bytes{0};
         bool valid{false};
+        std::string source_ip{};
+        std::uint16_t source_port{0};
     };
 
     struct Message

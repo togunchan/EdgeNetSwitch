@@ -5,6 +5,7 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
@@ -108,6 +109,13 @@ namespace edgenetswitch
                 continue;
             }
             packet.timestamp_ms = nowMs();
+            // inet_ntoa() uses a static internal buffer (not thread-safe),
+            // but we immediately copy into std::string, so it's safe here.
+            packet.source_ip = inet_ntoa(client_addr.sin_addr);
+            // Convert port from network byte order (big-endian) to host byte order.
+            // Network protocols always use big-endian, but the host machine
+            // (e.g. x86) is typically little-endian.
+            packet.source_port = ntohs(client_addr.sin_port);
 
             sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 
