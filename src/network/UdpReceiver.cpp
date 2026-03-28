@@ -10,6 +10,7 @@
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/packet/PacketParser.hpp"
+#include "edgenetswitch/packet/PacketValidator.hpp"
 
 namespace edgenetswitch
 {
@@ -102,10 +103,12 @@ namespace edgenetswitch
 
             std::string data(buffer, static_cast<size_t>(len));
             Logger::info("UDP packet received: " + data);
+
             auto packet = parsePacket(data);
+
             if (!packet.valid)
             {
-                Logger::warn("Invalid packet dropped: " + data);
+                Logger::warn("Packet rejected (parse error): " + data);
                 continue;
             }
             packet.timestamp_ms = nowMs();
@@ -116,6 +119,14 @@ namespace edgenetswitch
             // Network protocols always use big-endian, but the host machine
             // (e.g. x86) is typically little-endian.
             packet.source_port = ntohs(client_addr.sin_port);
+
+            auto result = PacketValidator::validate(packet);
+
+            if (!result.accepted)
+            {
+                Logger::warn("Packet rejected (validation): reason=" + toString(result.reason));
+                continue;
+            }
 
             sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 

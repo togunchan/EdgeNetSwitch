@@ -110,6 +110,7 @@ add_executable(EdgeNetSwitchDaemon
     src/packet/PacketGenerator.cpp
     src/packet/PacketProcessor.cpp
     src/packet/PacketStats.cpp
+    src/packet/PacketValidator.cpp
     src/network/UdpReceiver.cpp
 )
 
