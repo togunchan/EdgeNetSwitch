@@ -2,10 +2,10 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8-orange)
+![Version](https://img.shields.io/badge/version-v1.8.1-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.0. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.1. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -152,6 +152,18 @@ PacketRx (timestamp=nowMs)
     ↓
 MessagingBus
 ```
+- UDP ingress integrates with the existing packet pipeline introduced in v1.7.
+
+### Packet Processing Pipeline (v1.8.1)
+- UDP-based packet ingestion (POSIX sockets)
+- Structured packet parsing (`PacketParser`)
+- Separation of parse errors vs validation errors
+- Event-driven drop handling via `MessagingBus` (`PacketDropped`)
+- Packet processing stage (`PacketProcessor`)
+- Payload vs wire size separation (network vs processing layer)
+- Real-time packet metrics (`PacketStats`)
+- Control-plane visibility via `packet-stats` command
+- Improves observability and separation of concerns in the packet pipeline.
 
 ### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
@@ -165,6 +177,10 @@ Deferred to keep the runtime deterministic, avoid premature coupling to hardware
 ## Runtime & control-plane architecture
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
+### Packet Flow (v1.8.1)
+
+UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
+
 ```
 +-------------------------------------------+
 | Network Ingress (v1.8)                    |
@@ -174,31 +190,31 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 +--------------------+----------------------+
                      |
                      v
-+------------------------------------------------------------------------------------+
-| Runtime Plane (deterministic tick loop)                                            |
-|                                                                                    |
-|  tick -> Telemetry -------------------+                                            |
-|       -> HealthMonitor                |                                            |
-|       -> PacketGenerator -----------+                                            |
-|                                     |                                            |
-|  UDP Ingress (recvfrom) ------------+----> PacketRx ---->                        |
-|                                                           v                        |
-|                            +-----------------------+                               |
-|                            |      MessagingBus     |  internal event backbone      |
-|                            +-----+-----------+-----+                               |
-|                                  |           |                                     |
-|                                  |           +--> PacketProcessor                  |
-|                                  |                 |                               |
-|                                  |                 +--PacketProcessed-->PacketStats|
-|                                  |                                                 |
-|                                  +--> Telemetry sample -> RuntimeMetrics           |
-|                                                                                    |
-|  Telemetry + HealthMonitor + PacketStats                                           |
-|                               v                                                    |
-|                        Runtime snapshot                                            |
-|                               v                                                    |
-|                        SnapshotPublisher                                           |
-+------------------------------------------------------------------------------------+
++-------------------------------------------------------------------------------------+
+| Runtime Plane (deterministic tick loop)                                             |
+|                                                                                     |
+|  tick -> Telemetry -----------+                                                     |
+|       -> HealthMonitor        |                                                     |
+|       -> PacketGenerator -----+                                                     |
+|                               |                                                     |
+|  UDP Ingress (recvfrom) ------+----> PacketRx ---->                                 |
+|                                                   v                                 |
+|                            +-----------------------+                                |
+|                            |      MessagingBus     |  internal event backbone       |
+|                            +-----+-----------+-----+                                |
+|                                  |           |                                      |
+|                                  |           +--> PacketProcessor                   |
+|                                  |                 |                                |
+|                                  |                 +--PacketProcessed-->PacketStats |
+|                                  |                                                  |
+|                                  +--> Telemetry sample -> RuntimeMetrics            |
+|                                                                                     |
+|  Telemetry + HealthMonitor + PacketStats                                            |
+|                               v                                                     |
+|                        Runtime snapshot                                             |
+|                               v                                                     |
+|                        SnapshotPublisher                                            | 
++-------------------------------------------------------------------------------------+
                  |                                            |
                  v                                            v
 +-------------------------------------------+   +------------------------------------+
@@ -219,6 +235,7 @@ The tick-driven runtime owns execution while all subsystems communicate via the 
 - Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, stops/joins the export worker thread, publishes `SystemShutdown`, and closes the socket.
 - Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
 
+## Daemon loop & message flow (simplified)
 ```cpp
 std::atomic_bool stopFlag{false};
 
@@ -247,8 +264,9 @@ int main(int argc, char** argv) {
 
     bus.publish({MessageType::SystemStart, nowMs()});
     while (!stopFlag.load(std::memory_order_relaxed)) {
-        telemetry.onTick();
-        health.onTick();
+        telemetry.onTick();   // produce metrics
+        health.onTick();      // evaluate system health
+        // packet pipeline runs via MessagingBus events
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
     }
 
