@@ -11,7 +11,8 @@ namespace edgenetswitch
     {
         std::uint64_t rx_packets{0};
         std::uint64_t rx_bytes{0};
-        std::uint64_t drops{0};
+        std::uint64_t drops_parse_error{0};
+        std::uint64_t drops_validation{0};
     };
 
     class PacketStats
@@ -25,10 +26,14 @@ namespace edgenetswitch
         std::uint64_t rxBytes() const;
         std::uint64_t drops() const;
 
+        void incrementParseError();
+        void incrementValidationError();
+
     private:
         std::atomic<std::uint64_t> rx_packets_{0};
         std::atomic<std::uint64_t> rx_bytes_{0};
-        std::atomic<std::uint64_t> drops_{0};
+        std::atomic<std::uint64_t> drops_parse_error_{0};
+        std::atomic<std::uint64_t> drops_validation_{0};
     };
 
 } // namespace edgenetswitch

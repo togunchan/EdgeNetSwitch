@@ -163,7 +163,9 @@ namespace edgenetswitch::control
             .payload =
                 "rx_packets=" + std::to_string(snap->packet.rx_packets) + "\n" +
                 "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n" +
-                "drops=" + std::to_string(snap->packet.drops)};
+                "drops_parse_error=" + std::to_string(snap->packet.drops_parse_error) + "\n" +
+                "drops_validation=" + std::to_string(snap->packet.drops_validation) + "\n" +
+                "drops_total=" + std::to_string(snap->packet.drops_parse_error + snap->packet.drops_validation)};
     }
 
     static const CommandTable &commandTable()
