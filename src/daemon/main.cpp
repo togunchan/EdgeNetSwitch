@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
 
     if (cfg.udp.enabled)
     {
-        udpReceiver = std::make_unique<UdpReceiver>(bus, packetStats, cfg.udp.port);
+        udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port);
         udpReceiver->start();
     }
 

@@ -15,7 +15,7 @@
 
 namespace edgenetswitch
 {
-    UdpReceiver::UdpReceiver(MessagingBus &bus, PacketStats &stats, int port) : bus_(bus), stats_(stats), port_(port) {}
+    UdpReceiver::UdpReceiver(MessagingBus &bus, int port) : bus_(bus), port_(port) {}
 
     UdpReceiver::~UdpReceiver()
     {
@@ -108,7 +108,12 @@ namespace edgenetswitch
 
             if (!packet.valid)
             {
-                stats_.incrementParseError();
+                Message dropMsg{};
+                dropMsg.type = MessageType::PacketDropped;
+                dropMsg.timestamp_ms = nowMs();
+                dropMsg.payload = PacketDropReason::ParseError;
+
+                bus_.publish(std::move(dropMsg));
                 Logger::warn("Packet rejected (parse error): " + data);
                 continue;
             }
@@ -125,7 +130,12 @@ namespace edgenetswitch
 
             if (!result.accepted)
             {
-                stats_.incrementValidationError();
+                Message dropMsg{};
+                dropMsg.type = MessageType::PacketDropped;
+                dropMsg.timestamp_ms = nowMs();
+                dropMsg.payload = PacketDropReason::ValidationError;
+
+                bus_.publish(std::move(dropMsg));
                 Logger::warn("Packet rejected (validation): reason=" + toString(result.reason));
                 continue;
             }

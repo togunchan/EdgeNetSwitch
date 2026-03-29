@@ -20,7 +20,14 @@ namespace edgenetswitch
         Telemetry,
         Health,
         PacketRx,
-        PacketProcessed
+        PacketProcessed,
+        PacketDropped
+    };
+
+    enum class PacketDropReason
+    {
+        ParseError,
+        ValidationError
     };
 
     struct TelemetryData
@@ -56,7 +63,8 @@ namespace edgenetswitch
         using Payload = std::variant<std::monostate,
                                      TelemetryData,
                                      HealthStatus,
-                                     Packet>;
+                                     Packet,
+                                     PacketDropReason>;
         Payload payload{};
     };
 

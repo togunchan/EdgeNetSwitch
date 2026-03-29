@@ -10,6 +10,22 @@ namespace edgenetswitch
 
                           rx_packets_.fetch_add(1, std::memory_order_relaxed);
                           rx_bytes_.fetch_add(p.size_bytes, std::memory_order_relaxed); });
+
+        bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
+                      {
+            auto reason = std::get<PacketDropReason>(msg.payload);
+
+            switch (reason)
+            {
+            case PacketDropReason::ParseError:
+                incrementParseError();
+                break;
+
+            case PacketDropReason::ValidationError:
+                incrementValidationError();
+                break;
+            }
+        });
     }
 
     PacketMetrics PacketStats::snapshot() const

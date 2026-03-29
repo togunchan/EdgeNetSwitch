@@ -6,12 +6,10 @@
 
 namespace edgenetswitch
 {
-    class PacketStats;
-
     class UdpReceiver
     {
     public:
-        UdpReceiver(MessagingBus &bus, PacketStats &stats, int port);
+        UdpReceiver(MessagingBus &bus, int port);
         ~UdpReceiver();
 
         void start();
@@ -25,6 +23,5 @@ namespace edgenetswitch
         int sockfd_;
         std::atomic_bool running_{false};
         std::thread worker_;
-        PacketStats &stats_;
     };
 } // namespace edgenetswitch
