@@ -27,7 +27,7 @@ namespace edgenetswitch
 
                                bus_.publish(std::move(dropMsg));
 
-                               Logger::warn("Processor dropped packet: payload too large");
+                               Logger::warn("[DROP][PROCESSOR][VALIDATION] payload too large");
                                return;
                            }
 
@@ -40,12 +40,17 @@ namespace edgenetswitch
 
                                bus_.publish(std::move(dropMsg));
 
-                               Logger::warn("Processor dropped packet: invalid timestamp");
+                               Logger::warn("[DROP][PROCESSOR][VALIDATION] invalid timestamp");
                                return;
                            }
 
                            processedPacket.payload_size =
                                static_cast<std::uint32_t>(processedPacket.payload.size());
+
+                           Logger::debug("[PROCESSOR] Packet processed: id=" +
+                                        std::to_string(processedPacket.id) +
+                                        ", payload_size=" +
+                                        std::to_string(processedPacket.payload_size));
 
                            Message processed{};
                            processed.type = MessageType::PacketProcessed;

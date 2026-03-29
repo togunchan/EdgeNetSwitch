@@ -54,7 +54,7 @@ namespace edgenetswitch
         // Start worker thread
         worker_ = std::thread(&UdpReceiver::run, this);
 
-        std::cout << "[UdpReceiver] Listening on port " << port_ << "\n";
+        std::cout << "[UDP] Listening on port " << port_ << "\n";
     }
 
     void UdpReceiver::stop()
@@ -75,7 +75,7 @@ namespace edgenetswitch
             worker_.join();
         }
 
-        std::cout << "[UdpReceiver] Stopped\n";
+        std::cout << "[UDP] Stopped\n";
     }
 
     void UdpReceiver::run()
@@ -97,12 +97,12 @@ namespace edgenetswitch
                 if (errno == EINTR)
                     continue;
 
-                Logger::error("recvfrom failed: " + std::string(strerror(errno)));
+                Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
                 continue;
             }
 
             std::string data(buffer, static_cast<size_t>(len));
-            Logger::info("UDP packet received: " + data);
+            Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
 
             auto packet = parsePacket(data);
 
@@ -114,7 +114,7 @@ namespace edgenetswitch
                 dropMsg.payload = PacketDropReason::ParseError;
 
                 bus_.publish(std::move(dropMsg));
-                Logger::warn("Packet rejected (parse error): " + data);
+                Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
                 continue;
             }
             packet.timestamp_ms = nowMs();
@@ -138,7 +138,7 @@ namespace edgenetswitch
                 dropMsg.payload = PacketDropReason::ValidationError;
 
                 bus_.publish(std::move(dropMsg));
-                Logger::warn("Packet rejected (validation): reason=" + toString(result.reason));
+                Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" + toString(result.reason));
                 continue;
             }
 
