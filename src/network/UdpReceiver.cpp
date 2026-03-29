@@ -5,15 +5,17 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/packet/PacketParser.hpp"
+#include "edgenetswitch/packet/PacketValidator.hpp"
+#include "edgenetswitch/packet/PacketStats.hpp"
 
 namespace edgenetswitch
 {
-    UdpReceiver::UdpReceiver(MessagingBus &bus, int port) : bus_(bus),
-                                                            port_(port) {}
+    UdpReceiver::UdpReceiver(MessagingBus &bus, int port) : bus_(bus), port_(port) {}
 
     UdpReceiver::~UdpReceiver()
     {
@@ -52,7 +54,7 @@ namespace edgenetswitch
         // Start worker thread
         worker_ = std::thread(&UdpReceiver::run, this);
 
-        std::cout << "[UdpReceiver] Listening on port " << port_ << "\n";
+        std::cout << "[UDP] Listening on port " << port_ << "\n";
     }
 
     void UdpReceiver::stop()
@@ -73,7 +75,7 @@ namespace edgenetswitch
             worker_.join();
         }
 
-        std::cout << "[UdpReceiver] Stopped\n";
+        std::cout << "[UDP] Stopped\n";
     }
 
     void UdpReceiver::run()
@@ -95,19 +97,50 @@ namespace edgenetswitch
                 if (errno == EINTR)
                     continue;
 
-                Logger::error("recvfrom failed: " + std::string(strerror(errno)));
+                Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
                 continue;
             }
 
             std::string data(buffer, static_cast<size_t>(len));
-            Logger::info("UDP packet received: " + data);
+            Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
+
             auto packet = parsePacket(data);
+
             if (!packet.valid)
             {
-                Logger::warn("Invalid packet dropped: " + data);
+                Message dropMsg{};
+                dropMsg.type = MessageType::PacketDropped;
+                dropMsg.timestamp_ms = nowMs();
+                dropMsg.payload = PacketDropReason::ParseError;
+
+                bus_.publish(std::move(dropMsg));
+                Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
                 continue;
             }
             packet.timestamp_ms = nowMs();
+            packet.wire_size = static_cast<std::uint32_t>(len);
+
+            // inet_ntoa() uses a static internal buffer (not thread-safe),
+            // but we immediately copy into std::string, so it's safe here.
+            packet.source_ip = inet_ntoa(client_addr.sin_addr);
+            // Convert port from network byte order (big-endian) to host byte order.
+            // Network protocols always use big-endian, but the host machine
+            // (e.g. x86) is typically little-endian.
+            packet.source_port = ntohs(client_addr.sin_port);
+
+            auto result = PacketValidator::validate(packet);
+
+            if (!result.accepted)
+            {
+                Message dropMsg{};
+                dropMsg.type = MessageType::PacketDropped;
+                dropMsg.timestamp_ms = nowMs();
+                dropMsg.payload = PacketDropReason::ValidationError;
+
+                bus_.publish(std::move(dropMsg));
+                Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" + toString(result.reason));
+                continue;
+            }
 
             sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 

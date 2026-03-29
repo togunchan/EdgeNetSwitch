@@ -1,6 +1,7 @@
 #pragma once
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include <atomic>
 #include <thread>
 
 namespace edgenetswitch

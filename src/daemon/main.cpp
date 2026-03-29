@@ -377,9 +377,13 @@ int main(int argc, char *argv[])
                   {
     const Packet &p = std::get<Packet>(msg.payload);
     Logger::info(
-        "Packet received: id=" + std::to_string(p.id) +
-        " payload=" + p.payload +
-        " timestamp=" + formatTimestamp(p.timestamp_ms)); });
+    "Packet received: "
+    "id=" + std::to_string(p.id) +
+    " payload=" + p.payload +
+    " timestamp=" + formatTimestamp(p.timestamp_ms) +
+    " source_ip=" + p.source_ip +
+    " source_port=" + std::to_string(p.source_port)
+); });
 
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;
