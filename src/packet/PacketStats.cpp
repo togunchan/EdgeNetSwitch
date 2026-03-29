@@ -9,7 +9,7 @@ namespace edgenetswitch
                           const Packet &p = std::get<Packet>(msg.payload);
 
                           rx_packets_.fetch_add(1, std::memory_order_relaxed);
-                          rx_bytes_.fetch_add(p.size_bytes, std::memory_order_relaxed); });
+                          rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed); });
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {

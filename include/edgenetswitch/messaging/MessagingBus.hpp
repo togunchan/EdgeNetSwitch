@@ -50,7 +50,8 @@ namespace edgenetswitch
         std::uint64_t id{0};
         std::string payload;
         std::uint64_t timestamp_ms{0};
-        std::uint32_t size_bytes{0};
+        std::uint32_t wire_size{0}; // raw packet size coming from UDP
+        std::uint32_t payload_size{0}; // parsed packet size
         bool valid{false};
         std::string source_ip{};
         std::uint16_t source_port{0};

@@ -19,7 +19,7 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
     Packet packet{};
     packet.id = 42;
     packet.timestamp_ms = 1000;
-    packet.size_bytes = 128;
+    packet.payload = std::string(128, 'x');
 
     Message msg{};
     msg.type = MessageType::PacketRx;
@@ -32,7 +32,7 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
 
     REQUIRE(processedCount == 1);
     REQUIRE(metrics.rx_packets == 1);
-    REQUIRE(metrics.rx_bytes == packet.size_bytes);
+    REQUIRE(metrics.rx_bytes == packet.payload.size());
 }
 
 TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[PacketPipeline]")
@@ -48,17 +48,17 @@ TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[Packe
     Packet first{};
     first.id = 1;
     first.timestamp_ms = 1000;
-    first.size_bytes = 64;
+    first.payload = std::string(64, 'x');
 
     Packet second{};
     second.id = 2;
     second.timestamp_ms = 1100;
-    second.size_bytes = 96;
+    second.payload = std::string(96, 'x');
 
     Packet third{};
     third.id = 3;
     third.timestamp_ms = 1200;
-    third.size_bytes = 128;
+    third.payload = std::string(128, 'x');
 
     Message msg{};
     msg.type = MessageType::PacketRx;
@@ -77,9 +77,9 @@ TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[Packe
 
     const PacketMetrics metrics = stats.snapshot();
     const std::uint64_t expectedBytes =
-        static_cast<std::uint64_t>(first.size_bytes) +
-        static_cast<std::uint64_t>(second.size_bytes) +
-        static_cast<std::uint64_t>(third.size_bytes);
+        static_cast<std::uint64_t>(first.payload.size()) +
+        static_cast<std::uint64_t>(second.payload.size()) +
+        static_cast<std::uint64_t>(third.payload.size());
 
     REQUIRE(processedCount == 3);
     REQUIRE(metrics.rx_packets == 3);
@@ -96,7 +96,6 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
     msg.type = MessageType::PacketRx;
     msg.timestamp_ms = 1000;
 
-    // wrong payload type for PacketProcessor (valid Message::Payload alternative)
     msg.payload = TelemetryData{
         .uptime_ms = 1,
         .tick_count = 1,

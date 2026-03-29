@@ -9,7 +9,7 @@ namespace edgenetswitch
         Packet packet;
         packet.id = packet_id_++;
         packet.timestamp_ms = now_ms;
-        packet.size_bytes = 64;
+        packet.payload_size = 64;
 
         Message msg;
         msg.type = MessageType::PacketRx;

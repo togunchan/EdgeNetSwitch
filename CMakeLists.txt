@@ -345,6 +345,7 @@ if(BUILD_TESTING)
 
     target_link_libraries(PacketPipelineTests
         PRIVATE
+            Logger
             MessagingBus
             Catch2::Catch2WithMain
     )

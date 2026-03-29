@@ -46,7 +46,7 @@ namespace edgenetswitch
                 p.payload = data.substr(payloadPos + 8);
         }
 
-        p.size_bytes = static_cast<std::uint32_t>(data.size());
+        p.payload_size = static_cast<std::uint32_t>(p.payload.size());
         p.valid = true;
 
         return p;

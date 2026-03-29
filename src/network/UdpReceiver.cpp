@@ -118,6 +118,8 @@ namespace edgenetswitch
                 continue;
             }
             packet.timestamp_ms = nowMs();
+            packet.wire_size = static_cast<std::uint32_t>(len);
+
             // inet_ntoa() uses a static internal buffer (not thread-safe),
             // but we immediately copy into std::string, so it's safe here.
             packet.source_ip = inet_ntoa(client_addr.sin_addr);
