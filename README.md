@@ -193,12 +193,12 @@ UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
 +------------------------------------------------------------------------------------+
 | Runtime Plane (deterministic tick loop)                                            |
 |                                                                                    |
-|  tick -> Telemetry -------------------+                                            |
-|       -> HealthMonitor                |                                            |
-|       -> PacketGenerator -----------+                                            |
-|                                     |                                            |
-|  UDP Ingress (recvfrom) ------------+----> PacketRx ---->                        |
-|                                                           v                        |
+|  tick -> Telemetry ----------+                                                     |
+|       -> HealthMonitor       |                                                     |
+|       -> PacketGenerator ----+                                                     |
+|                              |                                                     |
+|  UDP Ingress (recvfrom) -----+--> PacketRx ---->                                   |
+|                                                v                                   |
 |                            +-----------------------+                               |
 |                            |      MessagingBus     |  internal event backbone      |
 |                            +-----+-----------+-----+                               |
