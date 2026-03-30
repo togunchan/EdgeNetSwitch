@@ -393,7 +393,6 @@ int main(int argc, char *argv[])
     {
         telemetry.onTick();
         healthMonitor.onTick();
-        // packetGenerator.onTick(nowMs());
 
         auto status =
             buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());

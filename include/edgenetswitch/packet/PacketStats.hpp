@@ -30,6 +30,7 @@ namespace edgenetswitch
 
         void incrementParseError();
         void incrementValidationError();
+        void updateRates(std::uint64_t now_ms) const;
 
     private:
         std::atomic<std::uint64_t> rx_packets_{0};
@@ -37,6 +38,10 @@ namespace edgenetswitch
         mutable std::uint64_t prev_rx_packets_{0};
         mutable std::uint64_t prev_rx_bytes_{0};
         mutable std::uint64_t prev_timestamp_ms_{0};
+        mutable std::uint64_t last_rx_packets_per_sec_{0};
+        mutable std::uint64_t last_rx_bytes_per_sec_{0};
+        mutable double smoothed_packets_per_sec_{0.0};
+        mutable double smoothed_bytes_per_sec_{0.0};
         std::atomic<std::uint64_t> drops_parse_error_{0};
         std::atomic<std::uint64_t> drops_validation_{0};
     };

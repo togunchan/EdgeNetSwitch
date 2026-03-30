@@ -1,5 +1,6 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
+#include <cmath>
 
 namespace edgenetswitch
 {
@@ -28,57 +29,67 @@ namespace edgenetswitch
             } });
     }
 
-    PacketMetrics PacketStats::snapshot() const
+    void PacketStats::updateRates(std::uint64_t now_ms) const
     {
-
-        auto current_packets = rx_packets_.load(std::memory_order_relaxed);
-        auto current_bytes = rx_bytes_.load(std::memory_order_relaxed);
-
-        auto now = nowMs();
+        const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
+        const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
 
         if (prev_timestamp_ms_ == 0)
         {
-            prev_timestamp_ms_ = now;
+            prev_timestamp_ms_ = now_ms;
             prev_rx_packets_ = current_packets;
             prev_rx_bytes_ = current_bytes;
-
-            return PacketMetrics{
-                .rx_packets = current_packets,
-                .rx_bytes = current_bytes,
-                .drops_parse_error = drops_parse_error_.load(std::memory_order_relaxed),
-                .drops_validation = drops_validation_.load(std::memory_order_relaxed),
-                .rx_packets_per_sec = 0,
-                .rx_bytes_per_sec = 0};
+            return;
         }
 
-        std::uint64_t delta_time = now - prev_timestamp_ms_;
-        std::uint64_t delta_packets = current_packets - prev_rx_packets_;
-        std::uint64_t delta_bytes = current_bytes - prev_rx_bytes_;
-
-        std::uint64_t packets_per_sec = 0;
-        std::uint64_t bytes_per_sec = 0;
-
-        if (delta_time > 0)
+        const std::uint64_t delta_time = now_ms - prev_timestamp_ms_;
+        if (delta_time < 1000)
         {
-            packets_per_sec = (delta_packets * 1000) / delta_time;
-            bytes_per_sec = (delta_bytes * 1000) / delta_time;
+            return;
         }
 
-        // NOTE:
-        // prev_* fields are mutable because snapshot() is logically const.
-        // They are used only for rate calculation and are not part of observable state.
-        // snapshot() is expected to be called from a single thread.
+        const std::uint64_t delta_packets = current_packets - prev_rx_packets_;
+        const std::uint64_t delta_bytes = current_bytes - prev_rx_bytes_;
+
+        const double instant_packets_per_sec =
+            (static_cast<double>(delta_packets) * 1000.0) / static_cast<double>(delta_time);
+        const double instant_bytes_per_sec =
+            (static_cast<double>(delta_bytes) * 1000.0) / static_cast<double>(delta_time);
+
+        constexpr double alpha = 0.2;
+        smoothed_packets_per_sec_ =
+            (alpha * instant_packets_per_sec) + ((1.0 - alpha) * smoothed_packets_per_sec_);
+        smoothed_bytes_per_sec_ =
+            (alpha * instant_bytes_per_sec) + ((1.0 - alpha) * smoothed_bytes_per_sec_);
+
+        last_rx_packets_per_sec_ =
+            static_cast<std::uint64_t>(std::llround(smoothed_packets_per_sec_));
+        last_rx_bytes_per_sec_ =
+            static_cast<std::uint64_t>(std::llround(smoothed_bytes_per_sec_));
+
         prev_rx_packets_ = current_packets;
         prev_rx_bytes_ = current_bytes;
-        prev_timestamp_ms_ = now;
+        prev_timestamp_ms_ = now_ms;
+    }
+
+    PacketMetrics PacketStats::snapshot() const
+    {
+        updateRates(nowMs());
+
+        const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
+        const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
+        const std::uint64_t drops_parse_error =
+            drops_parse_error_.load(std::memory_order_relaxed);
+        const std::uint64_t drops_validation =
+            drops_validation_.load(std::memory_order_relaxed);
 
         return PacketMetrics{
             .rx_packets = current_packets,
             .rx_bytes = current_bytes,
-            .drops_parse_error = drops_parse_error_.load(std::memory_order_relaxed),
-            .drops_validation = drops_validation_.load(std::memory_order_relaxed),
-            .rx_packets_per_sec = packets_per_sec,
-            .rx_bytes_per_sec = bytes_per_sec};
+            .rx_packets_per_sec = last_rx_packets_per_sec_,
+            .rx_bytes_per_sec = last_rx_bytes_per_sec_,
+            .drops_parse_error = drops_parse_error,
+            .drops_validation = drops_validation};
     }
 
     std::uint64_t PacketStats::rxPackets() const

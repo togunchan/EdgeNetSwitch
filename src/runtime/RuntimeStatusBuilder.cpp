@@ -19,8 +19,8 @@ namespace edgenetswitch
         return RuntimeStatus{
             .metrics = telemetry.snapshot(),
             .health = healthMonitor.currentStatus(),
-            .packet = packet_metrics,
             .state = state,
-            .snapshot_timestamp_ms = now_ms};
+            .snapshot_timestamp_ms = now_ms,
+            .packet = packet_metrics};
     }
 } // namespace edgenetswitch

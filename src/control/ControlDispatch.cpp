@@ -165,7 +165,9 @@ namespace edgenetswitch::control
                 "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n" +
                 "drops_parse_error=" + std::to_string(snap->packet.drops_parse_error) + "\n" +
                 "drops_validation=" + std::to_string(snap->packet.drops_validation) + "\n" +
-                "drops_total=" + std::to_string(snap->packet.drops_parse_error + snap->packet.drops_validation)};
+                "drops_total=" + std::to_string(snap->packet.drops_parse_error + snap->packet.drops_validation) + "\n" +
+                "rx_packets_per_sec=" + std::to_string(snap->packet.rx_packets_per_sec) + "\n" +
+                "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec)};
     }
 
     static const CommandTable &commandTable()
