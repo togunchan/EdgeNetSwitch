@@ -56,15 +56,20 @@ namespace edgenetswitch
         const double instant_bytes_per_sec =
             (static_cast<double>(delta_bytes) * 1000.0) / static_cast<double>(delta_time);
 
+        last_rx_packets_per_sec_raw_ =
+            static_cast<std::uint64_t>(std::llround(instant_packets_per_sec));
+        last_rx_bytes_per_sec_raw_ =
+            static_cast<std::uint64_t>(std::llround(instant_bytes_per_sec));
+
         constexpr double alpha = 0.2;
         smoothed_packets_per_sec_ =
             (alpha * instant_packets_per_sec) + ((1.0 - alpha) * smoothed_packets_per_sec_);
         smoothed_bytes_per_sec_ =
             (alpha * instant_bytes_per_sec) + ((1.0 - alpha) * smoothed_bytes_per_sec_);
 
-        last_rx_packets_per_sec_ =
+        last_smoothed_rx_packets_per_sec_ =
             static_cast<std::uint64_t>(std::llround(smoothed_packets_per_sec_));
-        last_rx_bytes_per_sec_ =
+        last_smoothed_rx_bytes_per_sec_ =
             static_cast<std::uint64_t>(std::llround(smoothed_bytes_per_sec_));
 
         prev_rx_packets_ = current_packets;
@@ -86,10 +91,12 @@ namespace edgenetswitch
         return PacketMetrics{
             .rx_packets = current_packets,
             .rx_bytes = current_bytes,
-            .rx_packets_per_sec = last_rx_packets_per_sec_,
-            .rx_bytes_per_sec = last_rx_bytes_per_sec_,
+            .rx_packets_per_sec = last_smoothed_rx_packets_per_sec_,
+            .rx_bytes_per_sec = last_smoothed_rx_bytes_per_sec_,
             .drops_parse_error = drops_parse_error,
-            .drops_validation = drops_validation};
+            .drops_validation = drops_validation,
+            .rx_packets_per_sec_raw = last_rx_packets_per_sec_raw_,
+            .rx_bytes_per_sec_raw = last_rx_bytes_per_sec_raw_};
     }
 
     std::uint64_t PacketStats::rxPackets() const
