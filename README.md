@@ -2,10 +2,10 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.1-orange)
+![Version](https://img.shields.io/badge/version-v1.8.2-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.1. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.2. Control protocol v1.2 (semantics stabilized).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -165,6 +165,28 @@ MessagingBus
 - Control-plane visibility via `packet-stats` command
 - Improves observability and separation of concerns in the packet pipeline.
 
+### Packet Rate Telemetry (v1.8.2)
+- Naive per-snapshot rates are unstable under bursty ingress and scheduler phase offset; packet arrival is not synchronized with the tick boundary.
+- `PacketStats` now computes packet/byte rates with a time gate (`>=1000ms`) to avoid sub-window jitter amplification.
+- EWMA smoothing (`alpha=0.2`) is applied for control-plane interpretability; it filters variance but does not redefine measurement correctness.
+- Dual observability is exposed: raw interval rates (`rx_packets_per_sec_raw`, `rx_bytes_per_sec_raw`) and smoothed trend rates (`rx_packets_per_sec`, `rx_bytes_per_sec`).
+- Deterministic rate validation is supported via `snapshotAt(now_ms)` for explicit time control in tests (no wall-clock dependency).
+- CLI example:
+
+```text
+OK
+rx_packets=321
+rx_bytes=2353
+rx_packets_per_sec=12
+rx_bytes_per_sec=88
+rx_packets_per_sec_raw=9
+rx_bytes_per_sec_raw=76
+END
+```
+- Raw rates reflect the last measurement window and may fluctuate due to scheduling jitter and burst alignment.
+- Smoothed rates (EWMA) provide a stable control-plane signal suitable for trend interpretation.
+- The divergence between raw and smoothed rates indicates transition dynamics in traffic behavior.
+
 ### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
 - Raw NIC driver or kernel data-plane integration
@@ -177,7 +199,7 @@ Deferred to keep the runtime deterministic, avoid premature coupling to hardware
 ## Runtime & control-plane architecture
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
-### Packet Flow (v1.8.1)
+### Packet Flow (v1.8.2)
 
 UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
 
