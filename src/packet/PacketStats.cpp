@@ -34,6 +34,24 @@ namespace edgenetswitch
         const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
         const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
 
+        if (current_packets < prev_rx_packets_ || current_bytes < prev_rx_bytes_)
+        {
+            // Counter reset scenario
+            prev_rx_packets_ = current_packets;
+            prev_rx_bytes_ = current_bytes;
+            prev_timestamp_ms_ = now_ms;
+
+            smoothed_packets_per_sec_ = 0.0;
+            smoothed_bytes_per_sec_ = 0.0;
+
+            last_smoothed_rx_packets_per_sec_ = 0;
+            last_smoothed_rx_bytes_per_sec_ = 0;
+            last_rx_packets_per_sec_raw_ = 0;
+            last_rx_bytes_per_sec_raw_ = 0;
+
+            return;
+        }
+
         if (prev_timestamp_ms_ == 0)
         {
             prev_timestamp_ms_ = now_ms;
@@ -61,6 +79,9 @@ namespace edgenetswitch
         last_rx_bytes_per_sec_raw_ =
             static_cast<std::uint64_t>(std::llround(instant_bytes_per_sec));
 
+        // NOTE:
+        // EWMA smoothing factor (alpha) is currently hardcoded.
+        // In production systems, this should be configurable
         constexpr double alpha = 0.2;
         smoothed_packets_per_sec_ =
             (alpha * instant_packets_per_sec) + ((1.0 - alpha) * smoothed_packets_per_sec_);
@@ -79,7 +100,12 @@ namespace edgenetswitch
 
     PacketMetrics PacketStats::snapshot() const
     {
-        updateRates(nowMs());
+        return snapshotAt(nowMs());
+    }
+
+    PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
+    {
+        updateRates(now_ms);
 
         const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
         const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);

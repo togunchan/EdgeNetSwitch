@@ -339,6 +339,7 @@ if(BUILD_TESTING)
 
     add_executable(PacketPipelineTests
         tests/packet_pipeline_tests.cpp
+        tests/packet_stats_rate_tests.cpp
         src/packet/PacketProcessor.cpp
         src/packet/PacketStats.cpp
     )

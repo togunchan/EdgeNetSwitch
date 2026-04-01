@@ -25,6 +25,7 @@ namespace edgenetswitch
         explicit PacketStats(MessagingBus &bus);
 
         PacketMetrics snapshot() const;
+        PacketMetrics snapshotAt(std::uint64_t now_ms) const;
 
         std::uint64_t rxPackets() const;
         std::uint64_t rxBytes() const;
