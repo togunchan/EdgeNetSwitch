@@ -13,7 +13,7 @@ namespace edgenetswitch
 
         smoothed_ = 0.0;
 
-        last_snapshot_ = {.raw_per_sec = 0, .smoothed_per_sec = 0, .valid = false};
+        last_snapshot_ = {.valid = false, .raw_per_sec = 0, .smoothed_per_sec = 0};
     }
 
     void WindowedEwmaRateSmoother::observe(std::uint64_t counter, std::uint64_t now_ms)
@@ -21,7 +21,7 @@ namespace edgenetswitch
         if (!has_prev_)
         {
             prev_counter_ = counter;
-            prev_time_ms_ = counter;
+            prev_time_ms_ = now_ms;
             has_prev_ = true;
             return;
         }
@@ -31,7 +31,7 @@ namespace edgenetswitch
         {
             reset();
             prev_counter_ = counter;
-            prev_time_ms_ = counter;
+            prev_time_ms_ = now_ms;
             has_prev_ = true;
             return;
         }

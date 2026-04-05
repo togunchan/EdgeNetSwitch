@@ -63,6 +63,7 @@ target_compile_features(Config PUBLIC cxx_std_20)
 # -------------------------------------------------------
 add_library(Telemetry
     src/telemetry/Telemetry.cpp
+    src/telemetry/WindowedEwmaRateSmoother.cpp
     src/telemetry/TelemetryExportManager.cpp
     src/telemetry/InMemoryTelemetryExporter.cpp
     src/telemetry/FileTelemetryExporter.cpp
@@ -339,13 +340,14 @@ if(BUILD_TESTING)
 
     add_executable(PacketPipelineTests
         tests/packet_pipeline_tests.cpp
-        tests/packet_stats_rate_tests.cpp
+        tests/rate_smoother_tests.cpp
         src/packet/PacketProcessor.cpp
         src/packet/PacketStats.cpp
     )
 
     target_link_libraries(PacketPipelineTests
         PRIVATE
+            Telemetry
             Logger
             MessagingBus
             Catch2::Catch2WithMain

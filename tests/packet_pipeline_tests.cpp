@@ -11,6 +11,7 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
     MessagingBus bus;
     PacketProcessor processor(bus);
     PacketStats stats(bus);
+    std::uint64_t now_ms = 1000;
 
     std::uint64_t processedCount = 0;
     bus.subscribe(MessageType::PacketProcessed, [&](const Message &)
@@ -28,7 +29,7 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
 
     bus.publish(msg);
 
-    const PacketMetrics metrics = stats.snapshot();
+    const PacketMetrics metrics = stats.snapshotAt(now_ms);
 
     REQUIRE(processedCount == 1);
     REQUIRE(metrics.rx_packets == 1);
@@ -40,6 +41,7 @@ TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[Packe
     MessagingBus bus;
     PacketProcessor processor(bus);
     PacketStats stats(bus);
+    std::uint64_t now_ms = 1000;
 
     std::uint64_t processedCount = 0;
     bus.subscribe(MessageType::PacketProcessed, [&](const Message &)
@@ -75,7 +77,7 @@ TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[Packe
     msg.payload = third;
     bus.publish(msg);
 
-    const PacketMetrics metrics = stats.snapshot();
+    const PacketMetrics metrics = stats.snapshotAt(now_ms);
     const std::uint64_t expectedBytes =
         static_cast<std::uint64_t>(first.payload.size()) +
         static_cast<std::uint64_t>(second.payload.size()) +
@@ -91,6 +93,7 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
     MessagingBus bus;
     PacketProcessor processor(bus);
     PacketStats stats(bus);
+    std::uint64_t now_ms = 1000;
 
     Message msg{};
     msg.type = MessageType::PacketRx;
@@ -103,7 +106,7 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
 
     bus.publish(msg);
 
-    auto metrics = stats.snapshot();
+    auto metrics = stats.snapshotAt(now_ms);
 
     REQUIRE(metrics.rx_packets == 0);
     REQUIRE(metrics.rx_bytes == 0);

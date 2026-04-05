@@ -280,6 +280,7 @@ int main(int argc, char *argv[])
     int control_fd = createControlSocket();
     std::thread controlThread;
     std::unique_ptr<UdpReceiver> udpReceiver;
+    RuntimeStatusBuilder statusBuilder;
 
     if (cfg.udp.enabled)
     {
@@ -294,7 +295,7 @@ int main(int argc, char *argv[])
     exportManager.start();
 
     {
-        auto status = buildRuntimeStatus(
+        auto status = statusBuilder.build(
             telemetry,
             healthMonitor,
             packetStats,
@@ -395,7 +396,7 @@ int main(int argc, char *argv[])
         healthMonitor.onTick();
 
         auto status =
-            buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+            statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
 
         g_snapshotPublisher.publish(status);
         std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
@@ -423,7 +424,7 @@ int main(int argc, char *argv[])
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
-    const auto status = buildRuntimeStatus(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+    const auto status = statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
     Logger::info(
         "RuntimeStatus: state=" + stateToString(status.state) +
         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
