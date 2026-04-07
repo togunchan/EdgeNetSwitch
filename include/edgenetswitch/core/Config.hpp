@@ -23,11 +23,18 @@ namespace edgenetswitch
         int port{9000};
     };
 
+    struct RateConfig
+    {
+        double alpha{0.2};
+        std::uint64_t window_ms{1000};
+    };
+
     struct Config
     {
         LogConfig log;
         DaemonConfig daemon;
         UdpConfig udp;
+        RateConfig rate;
     };
 
     class ConfigLoader

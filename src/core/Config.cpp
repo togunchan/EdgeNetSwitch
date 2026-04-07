@@ -100,6 +100,7 @@ namespace edgenetswitch
         json logJson = objectOrEmpty(j, "log");
         json daemonJson = objectOrEmpty(j, "daemon");
         json udpJson = objectOrEmpty(j, "udp");
+        json rateJson = objectOrEmpty(j, "rate");
 
         cfg.log.level = logJson.value("level", "info");
         cfg.log.file = logJson.value("file", "edgenetswitch.log");
@@ -108,6 +109,19 @@ namespace edgenetswitch
 
         cfg.udp.enabled = udpJson.value("enabled", false);
         cfg.udp.port = udpJson.value("port", 9000);
+
+        cfg.rate.alpha = rateJson.value("alpha", 0.2);
+        cfg.rate.window_ms = rateJson.value("window_ms", 1000);
+
+        if (cfg.rate.alpha <= 0.0 || cfg.rate.alpha > 1.0)
+        {
+            throw std::runtime_error("rate.alpha must be in (0,1]");
+        }
+
+        if (cfg.rate.window_ms == 0)
+        {
+            throw std::runtime_error("rate.window_ms must be > 0");
+        }
 
         return cfg;
     }

@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
     int control_fd = createControlSocket();
     std::thread controlThread;
     std::unique_ptr<UdpReceiver> udpReceiver;
-    RuntimeStatusBuilder statusBuilder;
+    RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
 
     if (cfg.udp.enabled)
     {

@@ -7,7 +7,11 @@
     "tick_ms": 100
   },
   "udp": {
-  "enabled": true,
-  "port": 9000
+    "enabled": true,
+    "port": 9000
+  },
+  "rate": {
+    "alpha": 0.2,
+    "window_ms": 1000
   }
 }

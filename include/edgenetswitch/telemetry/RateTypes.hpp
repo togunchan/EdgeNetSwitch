@@ -17,4 +17,11 @@ namespace edgenetswitch
         std::uint64_t smoothed_per_sec{0};
     };
 
+    inline RateSmootherConfig toSmootherConfig(const RateConfig &cfg)
+    {
+        return {
+            .alpha = cfg.alpha,
+            .window_ms = cfg.window_ms};
+    }
+
 } // namespace edgenetswitch
