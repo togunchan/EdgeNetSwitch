@@ -1,4 +1,5 @@
 #include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 
 #include <fstream>
 #include <stdexcept>
@@ -75,6 +76,8 @@ namespace edgenetswitch::core
             throw std::runtime_error(message);
         }
 
+        Logger::info("Loaded config: " + resolvedPath.string());
+
         json j;
         try
         {
@@ -110,8 +113,13 @@ namespace edgenetswitch::core
         cfg.udp.enabled = udpJson.value("enabled", false);
         cfg.udp.port = udpJson.value("port", 9000);
 
-        cfg.rate.alpha = rateJson.value("alpha", 0.2);
-        cfg.rate.window_ms = rateJson.value("window_ms", 1000);
+        cfg.rate.alpha = rateJson.contains("alpha")
+                             ? rateJson["alpha"].get<double>()
+                             : 0.2;
+
+        cfg.rate.window_ms = rateJson.contains("window_ms")
+                                 ? rateJson["window_ms"].get<std::uint64_t>()
+                                 : 1000;
 
         if (cfg.rate.alpha <= 0.0 || cfg.rate.alpha > 1.0)
         {
@@ -121,6 +129,11 @@ namespace edgenetswitch::core
         if (cfg.rate.window_ms == 0)
         {
             throw std::runtime_error("rate.window_ms must be > 0");
+        }
+
+        if (rateJson.contains("alpha") && !rateJson["alpha"].is_number())
+        {
+            throw std::runtime_error("rate.alpha must be a number");
         }
 
         return cfg;

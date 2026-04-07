@@ -53,6 +53,7 @@ target_include_directories(Config
 
 target_link_libraries(Config
     PUBLIC
+        Logger
         nlohmann_json::nlohmann_json
 )
 

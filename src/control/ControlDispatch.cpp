@@ -1,6 +1,7 @@
 #include <atomic>
 #include <string>
 #include <unordered_map>
+#include <nlohmann/json.hpp>
 
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
@@ -22,6 +23,31 @@ namespace edgenetswitch::control
             .message = msg};
     }
 
+    static ControlResponse makeJsonSuccess(const nlohmann::json &data)
+    {
+        nlohmann::json j;
+        j["status"] = "ok";
+        j["data"] = data;
+
+        return ControlResponse{
+            .success = true,
+            .payload = j.dump(2)};
+    }
+
+    static ControlResponse makeJsonError(const std::string &code, const std::string &msg)
+    {
+        nlohmann::json j;
+        j["status"] = "error";
+        j["error"]["code"] = code;
+        j["error"]["message"] = msg;
+
+        return ControlResponse{
+            .success = false,
+            .payload = j.dump(2),
+            .error_code = code,
+            .message = msg};
+    }
+
     static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx, ControlResponse &err)
     {
         if (!ctx.publisher)
@@ -40,13 +66,25 @@ namespace edgenetswitch::control
 
     static ControlResponse handleStatus(
         const ControlContext &ctx,
-        const std::string &)
+        const std::string &arg)
     {
         ControlResponse err{};
         auto snap = loadSnapshot(ctx, err);
         if (!snap)
         {
             return err;
+        }
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["state"] = stateToString(snap->state);
+            j["uptime_ms"] = snap->metrics.uptime_ms;
+            j["tick_count"] = snap->metrics.tick_count;
+            j["snapshot_version"] = snap->snapshot_version;
+            j["snapshot_timestamp_ms"] = snap->snapshot_timestamp_ms;
+
+            return makeJsonSuccess(j);
         }
 
         return ControlResponse{
@@ -152,13 +190,28 @@ namespace edgenetswitch::control
 
     static ControlResponse handlePacketStats(
         const ControlContext &ctx,
-        const std::string &)
+        const std::string &arg)
     {
         ControlResponse err{};
         auto snap = loadSnapshot(ctx, err);
         if (!snap)
         {
             return err;
+        }
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["rx_packets"] = snap->packet.rx_packets;
+            j["rx_bytes"] = snap->packet.rx_bytes;
+            j["drops_parse_error"] = snap->packet.drops_parse_error;
+            j["drops_validation"] = snap->packet.drops_validation;
+            j["rx_packets_per_sec"] = snap->packet.rx_packets_per_sec;
+            j["rx_bytes_per_sec"] = snap->packet.rx_bytes_per_sec;
+            j["rx_packets_per_sec_raw"] = snap->packet.rx_packets_per_sec_raw;
+            j["rx_bytes_per_sec_raw"] = snap->packet.rx_bytes_per_sec_raw;
+
+            return makeJsonSuccess(j);
         }
 
         return ControlResponse{
@@ -175,12 +228,26 @@ namespace edgenetswitch::control
                 "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw)};
     }
 
-    static ControlResponse handleConfig(const ControlContext &ctx, const std::string &)
+    static ControlResponse handleConfig(const ControlContext &ctx, const std::string &arg)
     {
         if (!ctx.config)
             return makeInternalError("config is not available");
 
         const auto &cfg = *ctx.config;
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["log"]["level"] = cfg.log.level;
+            j["log"]["file"] = cfg.log.file;
+            j["daemon"]["tick_ms"] = cfg.daemon.tick_ms;
+            j["udp"]["enabled"] = cfg.udp.enabled;
+            j["udp"]["port"] = cfg.udp.port;
+            j["rate"]["alpha"] = cfg.rate.alpha;
+            j["rate"]["window_ms"] = cfg.rate.window_ms;
+
+            return makeJsonSuccess(j);
+        }
 
         return ControlResponse{
             .success = true,
@@ -237,6 +304,7 @@ namespace edgenetswitch::control
               .description = "packet pipeline statistics",
               .fields = {"rx_packets", "rx_bytes", "drops"},
               .handler = handlePacketStats}},
+
             {"show-config",
              {.name = "show-config",
               .description = "current runtime configuration",
