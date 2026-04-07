@@ -1,5 +1,7 @@
 #pragma once
 
+#include "edgenetswitch/core/Config.hpp"
+
 #include <cstdint>
 
 namespace edgenetswitch
@@ -17,7 +19,7 @@ namespace edgenetswitch
         std::uint64_t smoothed_per_sec{0};
     };
 
-    inline RateSmootherConfig toSmootherConfig(const RateConfig &cfg)
+    inline RateSmootherConfig toSmootherConfig(const core::RateConfig &cfg)
     {
         return {
             .alpha = cfg.alpha,

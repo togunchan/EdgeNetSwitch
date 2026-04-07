@@ -101,7 +101,8 @@ namespace
                                  const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
                                  const HealthMonitor &healthMonitor,
-                                 const std::atomic_bool &stopRequested)
+                                 const std::atomic_bool &stopRequested,
+                                 const core::Config &cfg)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
         {
@@ -147,7 +148,7 @@ namespace
 
                 control::ControlContext ctx{
                     .publisher = &g_snapshotPublisher,
-                };
+                    .config = &cfg};
 
                 control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
                 std::string wire = control::encodeResponse(resp);
@@ -264,7 +265,7 @@ int main(int argc, char *argv[])
     }
     installSignalHandlers();
 
-    Config cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
+    core::Config cfg = core::ConfigLoader::loadFromFile("config/edgenetswitch.json");
 
     Logger::init(Logger::parseLevel(cfg.log.level), cfg.log.file);
     Logger::info("EdgeNetSwitch daemon starting...");
@@ -312,7 +313,8 @@ int main(int argc, char *argv[])
                                     std::cref(telemetry),
                                     std::cref(runtimeState),
                                     std::cref(healthMonitor),
-                                    std::cref(g_stopRequested));
+                                    std::cref(g_stopRequested),
+                                    std::cref(cfg));
     }
     else
     {

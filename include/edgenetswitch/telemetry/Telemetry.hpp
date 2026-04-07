@@ -11,7 +11,7 @@ namespace edgenetswitch
     class Telemetry
     {
     public:
-        Telemetry(MessagingBus &bus, const Config &cfg);
+        Telemetry(MessagingBus &bus, const core::Config &cfg);
 
         void onTick();
 

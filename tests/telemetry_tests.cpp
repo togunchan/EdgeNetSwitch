@@ -11,7 +11,7 @@ using namespace edgenetswitch;
 TEST_CASE("Telemetry publishes TelemetryData on each tick", "[Telemetry]")
 {
     MessagingBus bus;
-    Config cfg{};
+    core::Config cfg{};
 
     Telemetry telemetry(bus, cfg);
 
@@ -37,7 +37,7 @@ TEST_CASE("Telemetry publishes TelemetryData on each tick", "[Telemetry]")
 TEST_CASE("Telemetry tick counter increments on subsequent ticks", "[Telemetry]")
 {
     MessagingBus bus;
-    Config cfg{};
+    core::Config cfg{};
 
     Telemetry telemetry(bus, cfg);
 

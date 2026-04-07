@@ -16,7 +16,7 @@ namespace edgenetswitch
         }
     }
 
-    Telemetry::Telemetry(MessagingBus &bus, const Config &) : bus_(bus), start_time_ms_(nowMs()), tick_count_(0) {}
+    Telemetry::Telemetry(MessagingBus &bus, const core::Config &) : bus_(bus), start_time_ms_(nowMs()), tick_count_(0) {}
 
     void Telemetry::onTick()
     {

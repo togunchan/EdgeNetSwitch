@@ -5,6 +5,7 @@
 #include "ControlContext.hpp"
 #include "ControlDispatch.hpp"
 #include "runtime/SnapshotPublisher.hpp"
+#include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
 
 namespace edgenetswitch::control
@@ -149,7 +150,9 @@ namespace edgenetswitch::control
         return ControlResponse{.success = true, .payload = payload};
     }
 
-    static ControlResponse handlePacketStats(const ControlContext &ctx, const std::string &)
+    static ControlResponse handlePacketStats(
+        const ControlContext &ctx,
+        const std::string &)
     {
         ControlResponse err{};
         auto snap = loadSnapshot(ctx, err);
@@ -170,6 +173,25 @@ namespace edgenetswitch::control
                 "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n" +
                 "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n" +
                 "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw)};
+    }
+
+    static ControlResponse handleConfig(const ControlContext &ctx, const std::string &)
+    {
+        if (!ctx.config)
+            return makeInternalError("config is not available");
+
+        const auto &cfg = *ctx.config;
+
+        return ControlResponse{
+            .success = true,
+            .payload =
+                "log.level=" + cfg.log.level + "\n" +
+                "log.file=" + cfg.log.file + "\n" +
+                "daemon.tick_ms=" + std::to_string(cfg.daemon.tick_ms) + "\n" +
+                "udp.enabled=" + std::string(cfg.udp.enabled ? "true" : "false") + "\n" +
+                "udp.port=" + std::to_string(cfg.udp.port) + "\n" +
+                "rate.alpha=" + std::to_string(cfg.rate.alpha) + "\n" +
+                "rate.window_ms=" + std::to_string(cfg.rate.window_ms)};
     }
 
     static const CommandTable &commandTable()
@@ -215,6 +237,11 @@ namespace edgenetswitch::control
               .description = "packet pipeline statistics",
               .fields = {"rx_packets", "rx_bytes", "drops"},
               .handler = handlePacketStats}},
+            {"show-config",
+             {.name = "show-config",
+              .description = "current runtime configuration",
+              .fields = {"log", "daemon", "udp", "rate"},
+              .handler = handleConfig}},
 
         };
         return table;

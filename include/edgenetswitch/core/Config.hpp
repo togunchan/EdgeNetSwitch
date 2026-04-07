@@ -3,7 +3,7 @@
 #include <string>
 #include <cstdint>
 
-namespace edgenetswitch
+namespace edgenetswitch::core
 {
 
     struct LogConfig

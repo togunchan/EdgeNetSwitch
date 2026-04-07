@@ -10,7 +10,7 @@
 
 using json = nlohmann::json;
 
-namespace edgenetswitch
+namespace edgenetswitch::core
 {
     Config ConfigLoader::loadFromFile(const std::string &path)
     {
@@ -125,4 +125,4 @@ namespace edgenetswitch
 
         return cfg;
     }
-} // namespace edgenetswitch
+} // namespace edgenetswitch::core

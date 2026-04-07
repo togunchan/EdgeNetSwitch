@@ -74,7 +74,7 @@ TEST_CASE("ConfigLoader loads full config correctly", "[Config]")
             }
         })");
 
-    Config cfg = ConfigLoader::loadFromFile(cfgPath.string());
+    core::Config cfg = core::ConfigLoader::loadFromFile(cfgPath.string());
 
     REQUIRE(cfg.log.level == "debug");
     REQUIRE(cfg.log.file == "custom.log");
@@ -91,7 +91,7 @@ TEST_CASE("ConfigLoader applies defaults when fields are missing", "[Config]")
             "log": {}
         })");
 
-    Config cfg = ConfigLoader::loadFromFile(cfgPath.string());
+    core::Config cfg = core::ConfigLoader::loadFromFile(cfgPath.string());
 
     REQUIRE(cfg.log.level == "info");             // default
     REQUIRE(cfg.log.file == "edgenetswitch.log"); // default
@@ -101,7 +101,7 @@ TEST_CASE("ConfigLoader applies defaults when fields are missing", "[Config]")
 TEST_CASE("ConfigLoader throws when config file does not exist", "[Config]")
 {
     REQUIRE_THROWS_AS(
-        ConfigLoader::loadFromFile("definitely_not_existing_config.json"),
+        core::ConfigLoader::loadFromFile("definitely_not_existing_config.json"),
         std::runtime_error);
 }
 
@@ -118,6 +118,6 @@ TEST_CASE("ConfigLoader throws on malformed JSON", "[Config]")
     );
 
     REQUIRE_THROWS_AS(
-        ConfigLoader::loadFromFile(cfgPath.string()),
+        core::ConfigLoader::loadFromFile(cfgPath.string()),
         std::runtime_error);
 }
