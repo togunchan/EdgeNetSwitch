@@ -20,7 +20,7 @@ namespace edgenetswitch::control
         return ControlResponse{
             .success = false,
             .error_code = error::InternalError,
-            .message = msg};
+            .message = std::move(msg)};
     }
 
     static ControlResponse makeJsonSuccess(const nlohmann::json &data)
@@ -48,31 +48,25 @@ namespace edgenetswitch::control
             .message = msg};
     }
 
-    static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx, ControlResponse &err)
+    static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx)
     {
         if (!ctx.publisher)
         {
-            err = makeInternalError("runtime snapshot pointer is null");
             return {};
         }
 
-        auto snap = ctx.publisher->load();
-        if (!snap)
-        {
-            err = makeInternalError("runtime snapshot is not available");
-        }
-        return snap;
+        return ctx.publisher->load();
+
     }
 
     static ControlResponse handleStatus(
         const ControlContext &ctx,
         const std::string &arg)
     {
-        ControlResponse err{};
-        auto snap = loadSnapshot(ctx, err);
+        auto snap = loadSnapshot(ctx);
         if (!snap)
         {
-            return err;
+            return makeJsonError(error::InternalError, "runtime snapshot not available");
         }
 
         if (arg == "json")
@@ -99,13 +93,22 @@ namespace edgenetswitch::control
 
     static ControlResponse handleHealth(
         const ControlContext &ctx,
-        const std::string &)
+        const std::string &arg)
     {
-        ControlResponse err{};
-        auto snap = loadSnapshot(ctx, err);
+        auto snap = loadSnapshot(ctx);
         if (!snap)
         {
-            return err;
+            return makeJsonError(error::InternalError, "runtime snapshot not available");
+        }
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["alive"] = snap->health.is_alive;
+            j["silence_ms"] = snap->health.silence_duration_ms;
+            j["last_heartbeat_ms"] = snap->health.last_heartbeat_ms;
+
+            return makeJsonSuccess(j);
         }
 
         return ControlResponse{
@@ -118,13 +121,21 @@ namespace edgenetswitch::control
 
     static ControlResponse handleMetrics(
         const ControlContext &ctx,
-        const std::string &)
+        const std::string &arg)
     {
-        ControlResponse err{};
-        auto snap = loadSnapshot(ctx, err);
+        auto snap = loadSnapshot(ctx);
         if (!snap)
         {
-            return err;
+            return makeJsonError(error::InternalError, "runtime snapshot not available");
+        }
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["uptime_ms"] = snap->metrics.uptime_ms;
+            j["tick_count"] = snap->metrics.tick_count;
+
+            return makeJsonSuccess(j);
         }
 
         return ControlResponse{
@@ -136,8 +147,18 @@ namespace edgenetswitch::control
 
     static ControlResponse handleVersion(
         const ControlContext &,
-        const std::string &)
+        const std::string &arg)
     {
+        if (arg == "json")
+        {
+            nlohmann::json j;
+            j["version"] = "1.2.0";
+            j["protocol"] = "1.2";
+            j["build"] = "debug";
+
+            return makeJsonSuccess(j);
+        }
+
         return ControlResponse{
             .success = true,
             .payload =
@@ -152,16 +173,29 @@ namespace edgenetswitch::control
     {
         const auto &handlers = commandTable();
 
+        if (target == "json")
+        {
+            nlohmann::json j;
+
+            for (const auto &[name, desc] : commandTable())
+            {
+                nlohmann::json cmd;
+                cmd["description"] = desc.description;
+                cmd["fields"] = desc.fields;
+
+                j["commands"][name] = cmd;
+            }
+
+            return makeJsonSuccess(j);
+        }
+
         // help <command>
         if (!target.empty())
         {
             auto it = handlers.find(target);
             if (it == handlers.end())
             {
-                return ControlResponse{
-                    .success = false,
-                    .error_code = "unknown_command",
-                    .message = "unknown command: " + target};
+                return makeJsonError("unknown_command", "unknown command: " + target);
             }
 
             const auto &cmd = it->second;
@@ -192,11 +226,10 @@ namespace edgenetswitch::control
         const ControlContext &ctx,
         const std::string &arg)
     {
-        ControlResponse err{};
-        auto snap = loadSnapshot(ctx, err);
+        auto snap = loadSnapshot(ctx);
         if (!snap)
         {
-            return err;
+            return makeJsonError(error::InternalError, "runtime snapshot not available");
         }
 
         if (arg == "json")
@@ -315,14 +348,6 @@ namespace edgenetswitch::control
         return table;
     }
 
-    static ControlResponse makeError(std::string code, std::string msg)
-    {
-        return ControlResponse{
-            .success = false,
-            .error_code = std::move(code),
-            .message = std::move(msg)};
-    }
-
     static ControlResponse dispatchV12(
         const ControlRequest &req,
         const ControlContext &ctx)
@@ -341,7 +366,7 @@ namespace edgenetswitch::control
         auto it = table.find(command);
         if (it == table.end())
         {
-            return makeError(error::UnknownCommand, "unknown command: " + command);
+            return makeJsonError(error::UnknownCommand, "unknown command: " + command);
         }
         return it->second.handler(ctx, arg);
     }
@@ -350,19 +375,19 @@ namespace edgenetswitch::control
     {
         if (req.version.empty() || req.command.empty())
         {
-            return makeError(error::InvalidRequest, "missing version or command");
+            return makeJsonError(error::InvalidRequest, "missing version or command");
         }
 
         if (!isWellFormedVersion(req.version))
         {
-            return makeError(error::InvalidVersionFormat,
-                             "invalid protocol version format: " + req.version);
+            return makeJsonError(error::InvalidVersionFormat,
+                                 "invalid protocol version format: " + req.version);
         }
 
         if (!isValidProtocolVersion(req.version))
         {
-            return makeError(error::UnsupportedVersion,
-                             "unsupported protocol version: " + req.version);
+            return makeJsonError(error::UnsupportedVersion,
+                                 "unsupported protocol version: " + req.version);
         }
 
         if (req.version == "1.2")
@@ -370,7 +395,7 @@ namespace edgenetswitch::control
             return dispatchV12(req, ctx);
         }
 
-        return makeError(error::UnsupportedVersion,
-                         "unsupported protocol version: " + req.version);
+        return makeJsonError(error::UnsupportedVersion,
+                             "unsupported protocol version: " + req.version);
     }
 } // namespace edgenetswitch::control
