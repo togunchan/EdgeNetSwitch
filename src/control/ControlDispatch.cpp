@@ -8,10 +8,12 @@
 #include "runtime/SnapshotPublisher.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "JsonResponse.hpp"
 
 namespace edgenetswitch::control
 {
     using CommandTable = std::unordered_map<std::string, CommandDescriptor>;
+    constexpr const char *VERSION = "1.2.0";
 
     static const CommandTable &commandTable();
 
@@ -23,30 +25,6 @@ namespace edgenetswitch::control
             .message = std::move(msg)};
     }
 
-    static ControlResponse makeJsonSuccess(const nlohmann::json &data)
-    {
-        nlohmann::json j;
-        j["status"] = "ok";
-        j["data"] = data;
-
-        return ControlResponse{
-            .success = true,
-            .payload = j.dump(2)};
-    }
-
-    static ControlResponse makeJsonError(const std::string &code, const std::string &msg)
-    {
-        nlohmann::json j;
-        j["status"] = "error";
-        j["error"]["code"] = code;
-        j["error"]["message"] = msg;
-
-        return ControlResponse{
-            .success = false,
-            .payload = j.dump(2),
-            .error_code = code,
-            .message = msg};
-    }
 
     static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx)
     {
@@ -152,7 +130,7 @@ namespace edgenetswitch::control
         if (arg == "json")
         {
             nlohmann::json j;
-            j["version"] = "1.2.0";
+            j["version"] = VERSION;
             j["protocol"] = "1.2";
             j["build"] = "debug";
 
@@ -162,7 +140,7 @@ namespace edgenetswitch::control
         return ControlResponse{
             .success = true,
             .payload =
-                "version=1.2.0\n"
+                std::string("version=") + VERSION + "\n"
                 "protocol=1.2\n"
                 "build=debug"};
     }
