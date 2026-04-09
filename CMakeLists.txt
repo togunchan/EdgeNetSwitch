@@ -349,7 +349,6 @@ if(BUILD_TESTING)
     target_link_libraries(PacketPipelineTests
         PRIVATE
             Telemetry
-            Logger
             MessagingBus
             Catch2::Catch2WithMain
     )
@@ -357,5 +356,36 @@ if(BUILD_TESTING)
     target_include_directories(PacketPipelineTests PRIVATE include)
 
     add_test(NAME PacketPipelineTests COMMAND PacketPipelineTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for Control dispatch
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(ControlTests
+        tests/control_tests.cpp
+        src/control/ControlDispatch.cpp
+        src/runtime/SnapshotPublisher.cpp
+    )
+
+    target_link_libraries(ControlTests
+        PRIVATE
+            Telemetry
+            MessagingBus
+            Config
+            HealthMonitor
+            Logger
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(ControlTests
+        PRIVATE
+            include
+            src
+    )
+
+    add_test(NAME ControlTests COMMAND ControlTests)
 
 endif()
