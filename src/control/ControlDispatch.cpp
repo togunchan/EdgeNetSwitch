@@ -17,15 +17,6 @@ namespace edgenetswitch::control
 
     static const CommandTable &commandTable();
 
-    static ControlResponse makeInternalError(const std::string &msg)
-    {
-        return ControlResponse{
-            .success = false,
-            .error_code = error::InternalError,
-            .message = std::move(msg)};
-    }
-
-
     static std::shared_ptr<const RuntimeStatus> loadSnapshot(const ControlContext &ctx)
     {
         if (!ctx.publisher)
@@ -34,13 +25,17 @@ namespace edgenetswitch::control
         }
 
         return ctx.publisher->load();
-
     }
 
     static ControlResponse handleStatus(
         const ControlContext &ctx,
         const std::string &arg)
     {
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
         auto snap = loadSnapshot(ctx);
         if (!snap)
         {
@@ -73,6 +68,11 @@ namespace edgenetswitch::control
         const ControlContext &ctx,
         const std::string &arg)
     {
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
         auto snap = loadSnapshot(ctx);
         if (!snap)
         {
@@ -101,6 +101,11 @@ namespace edgenetswitch::control
         const ControlContext &ctx,
         const std::string &arg)
     {
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
         auto snap = loadSnapshot(ctx);
         if (!snap)
         {
@@ -127,6 +132,11 @@ namespace edgenetswitch::control
         const ControlContext &,
         const std::string &arg)
     {
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
         if (arg == "json")
         {
             nlohmann::json j;
@@ -140,8 +150,8 @@ namespace edgenetswitch::control
         return ControlResponse{
             .success = true,
             .payload =
-                std::string("version=") + VERSION + "\n"
-                "protocol=1.2\n"
+                std::string("version=") + VERSION + "\n" +
+                "protocol=1.2\n" +
                 "build=debug"};
     }
 
@@ -155,7 +165,7 @@ namespace edgenetswitch::control
         {
             nlohmann::json j;
 
-            for (const auto &[name, desc] : commandTable())
+            for (const auto &[name, desc] : handlers)
             {
                 nlohmann::json cmd;
                 cmd["description"] = desc.description;
@@ -173,7 +183,7 @@ namespace edgenetswitch::control
             auto it = handlers.find(target);
             if (it == handlers.end())
             {
-                return makeJsonError("unknown_command", "unknown command: " + target);
+                return makeJsonError(error::UnknownCommand, "unknown command: " + target);
             }
 
             const auto &cmd = it->second;
@@ -204,6 +214,11 @@ namespace edgenetswitch::control
         const ControlContext &ctx,
         const std::string &arg)
     {
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
         auto snap = loadSnapshot(ctx);
         if (!snap)
         {
@@ -242,9 +257,14 @@ namespace edgenetswitch::control
     static ControlResponse handleConfig(const ControlContext &ctx, const std::string &arg)
     {
         if (!ctx.config)
-            return makeInternalError("config is not available");
+            return makeJsonError(error::InternalError, "config is not available");
 
         const auto &cfg = *ctx.config;
+
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
 
         if (arg == "json")
         {

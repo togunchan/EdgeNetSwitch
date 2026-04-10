@@ -18,6 +18,9 @@
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
+#include "control/JsonResponse.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <csignal>
@@ -97,6 +100,22 @@ namespace
         }
     }
 
+    void writeControlResponse(int client_fd, const control::ControlResponse &resp)
+    {
+        const std::string wire = resp.payload.empty()
+                                     ? control::encodeResponse(resp)
+                                     : resp.payload;
+        // NOTE:
+        // write() may perform a partial write on sockets, especially under load.
+        // For current small control-plane responses this is acceptable,
+        // but not strictly correct for production-grade I/O.
+        //
+        // TODO (v1.8.4):
+        // - Introduce writeAll() helper to guarantee full buffer transmission
+        // - Ensure robust socket I/O with retry logic for partial writes
+        ::write(client_fd, wire.c_str(), wire.size());
+    }
+
     void controlSocketThreadFunc(int control_fd,
                                  const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
@@ -118,7 +137,6 @@ namespace
                 Logger::error("Control socket accept failed");
                 continue;
             }
-
             char buffer[128]{};
             ssize_t n = ::read(client_fd, buffer, sizeof(buffer) - 1);
             if (n > 0)
@@ -128,12 +146,10 @@ namespace
                 auto sep = cmd.find('|');
                 if (sep == std::string::npos)
                 {
-                    control::ControlResponse resp{
-                        .success = false,
-                        .error_code = control::error::InvalidRequest,
-                        .message = "malformed_request"};
-                    auto wire = control::encodeResponse(resp);
-                    ::write(client_fd, wire.c_str(), wire.size());
+                    const auto resp = control::makeJsonError(
+                        control::error::InvalidRequest,
+                        "malformed_request");
+                    writeControlResponse(client_fd, resp);
                     ::close(client_fd);
                     continue;
                 }
@@ -150,9 +166,8 @@ namespace
                     .publisher = &g_snapshotPublisher,
                     .config = &cfg};
 
-                control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
-                std::string wire = control::encodeResponse(resp);
-                ::write(client_fd, wire.c_str(), wire.size());
+                const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
+                writeControlResponse(client_fd, resp);
             }
             ::close(client_fd);
         }
@@ -173,7 +188,7 @@ namespace
         return command.empty() ? "Command" : command;
     }
 
-    bool runControlCLI(const std::string &command)
+    bool executeControlCommand(const std::string &command)
     {
         int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0)
@@ -203,13 +218,10 @@ namespace
         while (true)
         {
             ssize_t n = ::read(fd, buffer, sizeof(buffer) - 1);
-            if (n < 0)
+            if (n <= 0)
                 break;
 
             accum.append(buffer, buffer + n);
-
-            if (accum.find("END\n") != std::string::npos)
-                break;
         }
 
         if (accum.empty())
@@ -219,25 +231,27 @@ namespace
             return false;
         }
 
-        auto firstNL = accum.find('\n');
-        std::string header = (firstNL == std::string::npos) ? accum : accum.substr(0, firstNL);
-
         Logger::info(cliTitleForCommand(command));
         Logger::info("--------------");
 
-        auto endPos = accum.find("END\n");
-        std::string body = (firstNL == std::string::npos) ? "" : accum.substr(firstNL + 1, endPos - (firstNL + 1));
+        const nlohmann::json parsed = nlohmann::json::parse(accum, nullptr, false);
+        if (!parsed.is_discarded() &&
+            parsed.is_object() &&
+            parsed.contains("status") &&
+            parsed["status"].is_string())
+        {
+            if (parsed["status"] == "ok")
+            {
+                Logger::info(accum);
+                return true;
+            }
 
-        if (header == "OK")
-        {
-            Logger::info(body);
-            return true;
-        }
-        else
-        {
-            Logger::error(body);
+            Logger::error(accum);
             return false;
         }
+
+        Logger::info(accum);
+        return true;
     }
 
 } // namespace
@@ -255,13 +269,10 @@ int main(int argc, char *argv[])
             command += argv[2];
         }
 
-        if (!runControlCLI(command))
-        {
-            Logger::error("Failed to retrieve command (is daemon running?)");
-        }
+        const bool ok = executeControlCommand(command);
 
         Logger::shutdown();
-        return 0;
+        return ok ? 0 : 1;
     }
     installSignalHandlers();
 
