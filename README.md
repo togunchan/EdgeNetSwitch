@@ -2,10 +2,10 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.2-orange)
+![Version](https://img.shields.io/badge/version-v1.8.3-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.2. Control protocol v1.2 (semantics stabilized).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.3. Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -69,7 +69,7 @@ echo "id=42;payload=hello" | nc -u -w1 127.0.0.1 9000
 
 ### v1.2 – Control Protocol v1.2
 - Versioned control request/response protocol (v1.2)
-- Framed responses (OK / ERR / END)
+- Initial framed responses (OK / ERR / END) (deprecated in later versions)
 - Centralized command dispatch layer
 - CLI commands: status, health, metrics, version
 - Structured key=value payloads for control responses
@@ -171,6 +171,7 @@ MessagingBus
 - EWMA smoothing (`alpha=0.2`) is applied for control-plane interpretability; it filters variance but does not redefine measurement correctness.
 - Dual observability is exposed: raw interval rates (`rx_packets_per_sec_raw`, `rx_bytes_per_sec_raw`) and smoothed trend rates (`rx_packets_per_sec`, `rx_bytes_per_sec`).
 - Deterministic rate validation is supported via `snapshotAt(now_ms)` for explicit time control in tests (no wall-clock dependency).
+Note: This example reflects legacy text-mode output. JSON-based responses were introduced in v1.8.3.
 - CLI example:
 
 ```text
@@ -187,6 +188,54 @@ END
 - Smoothed rates (EWMA) provide a stable control-plane signal suitable for trend interpretation.
 - The divergence between raw and smoothed rates indicates transition dynamics in traffic behavior.
 
+### Control Plane JSON & CLI Semantics (v1.8.3)
+
+- Control-plane response format is now standardized as JSON:
+  - `status`: "ok" or "error"
+  - `data`: present on success
+  - `error`: contains `code` and `message` on failure
+- All control handlers now return consistent JSON responses via shared helpers.
+- Argument validation is enforced across commands (`:json` is the only supported modifier).
+- CLI is now JSON-aware:
+  - Automatically parses JSON responses
+  - Falls back to text output for backward compatibility
+- Proper CLI exit codes introduced:
+  - `0` → success
+  - `1` → error
+- Legacy framed protocol parsing (`OK / ERR / END`) removed from CLI logic.
+
+Example:
+
+```bash
+./build/EdgeNetSwitchDaemon status:json
+```
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "state": "RUNNING",
+    "uptime_ms": 1234
+  }
+}
+```
+
+Error example:
+
+```bash
+./build/EdgeNetSwitchDaemon invalid
+```
+
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "unknown_command",
+    "message": "unknown command: invalid"
+  }
+}
+```
+
 ### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
 - Raw NIC driver or kernel data-plane integration
@@ -197,7 +246,7 @@ END
 Deferred to keep the runtime deterministic, avoid premature coupling to hardware-specific data-plane stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns framed responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure) without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
 
 ### Packet Flow (v1.8.2)
 
@@ -255,7 +304,7 @@ UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
 - Export worker: waits on `std::condition_variable`, drains queued samples, and invokes registered exporters off the runtime path.
 - Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
 - Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, stops/joins the export worker thread, publishes `SystemShutdown`, and closes the socket.
-- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns framed responses (`OK`/`ERR` + payload + `END`), and terminates when the stop flag flips.
+- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure), and terminates when the stop flag flips.
 
 ## Daemon loop & message flow (simplified)
 ```cpp
@@ -263,7 +312,7 @@ std::atomic_bool stopFlag{false};
 
 int main(int argc, char** argv) {
     if (argc > 1) {
-        runControlCLI(argv[1]);
+        executeControlCommand(argv[1]);
         return 0;
     }
 
@@ -302,53 +351,54 @@ int main(int argc, char** argv) {
 ## CLI usage (v1.8)
 - Run the daemon: `./build/EdgeNetSwitchDaemon`
 - Query status: `./build/EdgeNetSwitchDaemon status`
+- Query status as JSON: `./build/EdgeNetSwitchDaemon status:json`
 - Query health: `./build/EdgeNetSwitchDaemon health`
+- Query health as JSON: `./build/EdgeNetSwitchDaemon health:json`
 - Query metrics: `./build/EdgeNetSwitchDaemon metrics`
+- Query metrics as JSON: `./build/EdgeNetSwitchDaemon metrics:json`
 - Query packet statistics: `./build/EdgeNetSwitchDaemon packet-stats`
 - Query version: `./build/EdgeNetSwitchDaemon version`
 - Help summary: `./build/EdgeNetSwitchDaemon help`
 - Help for a command (detailed introspection): `./build/EdgeNetSwitchDaemon help <command>`
 - Help for a command (alternate form): `./build/EdgeNetSwitchDaemon help:<command>`
 - Help output is generated from dispatch metadata in the daemon.
-- Request format: `1.2|<command>`
-- Response framing: `OK` or `ERR` header line, payload lines, terminator `END` (errors include `error_code` and `message`)
+- Request format: `1.2|<command[:json]>`
+- Response format (JSON): `status` is `ok` or `error`; `data` is present on success; `error` contains `code` and `message` on failure
+- Legacy `OK` / `ERR` / `END` framing is deprecated; JSON is the primary response format. Legacy framing may still exist internally for compatibility.
 - `status` payload: `state`, `uptime_ms`, `tick_count`
-- `health` payload: `alive`, `timeout_ms`
+- `health` payload: `alive`, `silence_ms`, `last_heartbeat_ms`
 - `metrics` payload: `uptime_ms`, `tick_count`
 - `version` payload: `version`, `protocol`, `build`
 
 ### Control Protocol Error Model
-Errors are part of the protocol contract, not implementation details. Each error carries a stable `error_code` and a human-readable `message`.
+Errors are part of the protocol contract, not implementation details. Each error carries a stable `code` and a human-readable `message`.
 
 - `invalid_request`: missing version or command, or malformed request line.
 - `invalid_version_format`: protocol version is not in `digit.digit` form (e.g., `1.2`).
 - `unsupported_version`: version is well-formed but not supported (only `1.2`).
 - `unknown_command`: command is not present in the dispatch table.
-- `internal_error`: fallback when a response lacks a specific error_code.
+- `internal_error`: fallback when a response lacks a specific code.
 
 ### CLI / IPC examples
 ```text
-# Valid request
-> 1.2|status
-< OK
-< state=<state>
-< uptime_ms=<ms>
-< tick_count=<count>
-< END
+# Valid request (JSON response)
+> 1.2|status:json
+< {
+<   "status": "ok",
+<   "data": {
+<     "state": "RUNNING",
+<     "uptime_ms": 1234,
+<     "tick_count": 42
+<   }
+< }
 
-# Unsupported version
-> 1.3|status
-< ERR
-< error_code=unsupported_version
-< message=unsupported protocol version: 1.3
-< END
+# Unsupported version (JSON response)
+> 1.3|status:json
+< {"status":"error","error":{"code":"unsupported_version","message":"unsupported protocol version: 1.3"}}
 
-# Unknown command
-> 1.2|frobnicate
-< ERR
-< error_code=unknown_command
-< message=unknown command: frobnicate
-< END
+# Unknown command (JSON response)
+> 1.2|frobnicate:json
+< {"status":"error","error":{"code":"unknown_command","message":"unknown command: frobnicate"}}
 ```
 
 ## Design principles
