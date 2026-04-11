@@ -33,8 +33,8 @@ namespace
         s.snapshot_timestamp_ms = 1700000000123ULL;
         s.packet.rx_packets = 101;
         s.packet.rx_bytes = 202;
-        s.packet.drops_parse_error = 3;
-        s.packet.drops_validation = 4;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ParseError] = 3;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ValidationError] = 4;
         s.packet.rx_packets_per_sec = 55;
         s.packet.rx_bytes_per_sec = 66;
         s.packet.rx_packets_per_sec_raw = 77;
@@ -212,8 +212,9 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         REQUIRE(j["status"] == "ok");
         CHECK(j["data"].contains("rx_packets"));
         CHECK(j["data"].contains("rx_bytes"));
-        CHECK(j["data"].contains("drops_parse_error"));
-        CHECK(j["data"].contains("drops_validation"));
+        CHECK(j["data"].contains("drops"));
+        CHECK(j["data"]["drops"].contains("parse_error"));
+        CHECK(j["data"]["drops"].contains("validation_error"));
         CHECK(j["data"].contains("rx_packets_per_sec"));
         CHECK(j["data"].contains("rx_bytes_per_sec"));
         CHECK(j["data"].contains("rx_packets_per_sec_raw"));

@@ -23,7 +23,10 @@ namespace edgenetswitch
                                Message dropMsg{};
                                dropMsg.type = MessageType::PacketDropped;
                                dropMsg.timestamp_ms = processedPacket.timestamp_ms;
-                               dropMsg.payload = PacketDropReason::ValidationError;
+                               dropMsg.payload = PacketDropped{
+                                   .reason = PacketDropReason::ValidationError,
+                                   .timestamp_ms = processedPacket.timestamp_ms,
+                                   .packet_id = processedPacket.id};
 
                                bus_.publish(std::move(dropMsg));
 
@@ -36,7 +39,10 @@ namespace edgenetswitch
                                Message dropMsg{};
                                dropMsg.type = MessageType::PacketDropped;
                                dropMsg.timestamp_ms = nowMs();
-                               dropMsg.payload = PacketDropReason::ValidationError;
+                               dropMsg.payload = PacketDropped{
+                                   .reason = PacketDropReason::ValidationError,
+                                   .timestamp_ms = dropMsg.timestamp_ms,
+                                   .packet_id = processedPacket.id};
 
                                bus_.publish(std::move(dropMsg));
 

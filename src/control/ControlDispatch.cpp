@@ -210,6 +210,23 @@ namespace edgenetswitch::control
         return ControlResponse{.success = true, .payload = payload};
     }
 
+    static std::string dropReasonToString(PacketDropReason reason)
+    {
+        switch (reason)
+        {
+        case PacketDropReason::ParseError:
+            return "parse_error";
+        case PacketDropReason::ValidationError:
+            return "validation_error";
+        case PacketDropReason::QueueOverflow:
+            return "queue_overflow";
+        case PacketDropReason::RateLimited:
+            return "rate_limited";
+        default:
+            return "unknown";
+        }
+    }
+
     static ControlResponse handlePacketStats(
         const ControlContext &ctx,
         const std::string &arg)
@@ -230,8 +247,15 @@ namespace edgenetswitch::control
             nlohmann::json j;
             j["rx_packets"] = snap->packet.rx_packets;
             j["rx_bytes"] = snap->packet.rx_bytes;
-            j["drops_parse_error"] = snap->packet.drops_parse_error;
-            j["drops_validation"] = snap->packet.drops_validation;
+
+            nlohmann::json drops_json;
+
+            for (const auto &[reason, count] : snap->packet.drops_by_reason)
+            {
+                drops_json[dropReasonToString(reason)] = count;
+            }
+
+            j["drops"] = drops_json;
             j["rx_packets_per_sec"] = snap->packet.rx_packets_per_sec;
             j["rx_bytes_per_sec"] = snap->packet.rx_bytes_per_sec;
             j["rx_packets_per_sec_raw"] = snap->packet.rx_packets_per_sec_raw;
@@ -240,18 +264,29 @@ namespace edgenetswitch::control
             return makeJsonSuccess(j);
         }
 
+        std::string payload;
+
+        payload += "rx_packets=" + std::to_string(snap->packet.rx_packets) + "\n";
+        payload += "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n";
+
+        std::uint64_t total_drops = 0;
+
+        for (const auto &[reason, count] : snap->packet.drops_by_reason)
+        {
+            payload += "drops_" + dropReasonToString(reason) + "=" + std::to_string(count) + "\n";
+            total_drops += count;
+        }
+
+        payload += "drops_total=" + std::to_string(total_drops) + "\n";
+
+        payload += "rx_packets_per_sec=" + std::to_string(snap->packet.rx_packets_per_sec) + "\n";
+        payload += "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n";
+        payload += "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
+        payload += "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw);
+
         return ControlResponse{
             .success = true,
-            .payload =
-                "rx_packets=" + std::to_string(snap->packet.rx_packets) + "\n" +
-                "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n" +
-                "drops_parse_error=" + std::to_string(snap->packet.drops_parse_error) + "\n" +
-                "drops_validation=" + std::to_string(snap->packet.drops_validation) + "\n" +
-                "drops_total=" + std::to_string(snap->packet.drops_parse_error + snap->packet.drops_validation) + "\n" +
-                "rx_packets_per_sec=" + std::to_string(snap->packet.rx_packets_per_sec) + "\n" +
-                "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n" +
-                "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n" +
-                "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw)};
+            .payload = std::move(payload)};
     }
 
     static ControlResponse handleConfig(const ControlContext &ctx, const std::string &arg)

@@ -108,10 +108,15 @@ namespace edgenetswitch
 
             if (!packet.valid)
             {
+                const auto ts = nowMs();
+
                 Message dropMsg{};
                 dropMsg.type = MessageType::PacketDropped;
-                dropMsg.timestamp_ms = nowMs();
-                dropMsg.payload = PacketDropReason::ParseError;
+                dropMsg.timestamp_ms = ts;
+                dropMsg.payload = PacketDropped{
+                    .reason = PacketDropReason::ParseError,
+                    .timestamp_ms = ts,
+                    .packet_id = 0};
 
                 bus_.publish(std::move(dropMsg));
                 Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
@@ -132,10 +137,15 @@ namespace edgenetswitch
 
             if (!result.accepted)
             {
+                const auto ts = nowMs();
+
                 Message dropMsg{};
                 dropMsg.type = MessageType::PacketDropped;
-                dropMsg.timestamp_ms = nowMs();
-                dropMsg.payload = PacketDropReason::ValidationError;
+                dropMsg.timestamp_ms = ts;
+                dropMsg.payload = PacketDropped{
+                    .reason = PacketDropReason::ValidationError,
+                    .timestamp_ms = ts,
+                    .packet_id = packet.id};
 
                 bus_.publish(std::move(dropMsg));
                 Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" + toString(result.reason));
