@@ -15,36 +15,29 @@ namespace edgenetswitch
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {
-            auto reason = std::get<PacketDropReason>(msg.payload);
+                          const auto drop = std::get<PacketDropped>(msg.payload);
 
-            switch (reason)
-            {
-            case PacketDropReason::ParseError:
-                incrementParseError();
-                break;
-
-            case PacketDropReason::ValidationError:
-                incrementValidationError();
-                break;
-            } });
+                          drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed); });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
     {
         const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
         const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
-        const std::uint64_t drops_parse_error =
-            drops_parse_error_.load(std::memory_order_relaxed);
-        const std::uint64_t drops_validation =
-            drops_validation_.load(std::memory_order_relaxed);
+
+        std::unordered_map<PacketDropReason, std::uint64_t> drop_snapshot;
+
+        for (const auto &[reason, counter] : drop_counters_)
+        {
+            drop_snapshot[reason] = counter.load(std::memory_order_relaxed);
+        }
 
         return PacketMetrics{
             .rx_packets = current_packets,
             .rx_bytes = current_bytes,
             .rx_packets_per_sec = 0,
             .rx_bytes_per_sec = 0,
-            .drops_parse_error = drops_parse_error,
-            .drops_validation = drops_validation,
+            .drops_by_reason = std::move(drop_snapshot),
             .rx_packets_per_sec_raw = 0,
             .rx_bytes_per_sec_raw = 0};
     }
@@ -61,17 +54,12 @@ namespace edgenetswitch
 
     std::uint64_t PacketStats::drops() const
     {
-        return drops_parse_error_.load(std::memory_order_relaxed) +
-               drops_validation_.load(std::memory_order_relaxed);
-    }
+        std::uint64_t total = 0;
+        for (const auto &[_, counter] : drop_counters_)
+        {
+            total += counter.load(std::memory_order_relaxed);
+        }
 
-    void PacketStats::incrementParseError()
-    {
-        drops_parse_error_.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    void PacketStats::incrementValidationError()
-    {
-        drops_validation_.fetch_add(1, std::memory_order_relaxed);
+        return total;
     }
 } // namespace edgenetswitch

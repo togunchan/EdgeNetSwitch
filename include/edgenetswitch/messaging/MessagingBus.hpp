@@ -27,7 +27,17 @@ namespace edgenetswitch
     enum class PacketDropReason
     {
         ParseError,
-        ValidationError
+        ValidationError,
+        QueueOverflow,
+        RateLimited,
+        Unknown
+    };
+
+    struct PacketDropped
+    {
+        PacketDropReason reason;
+        std::uint64_t timestamp_ms;
+        std::uint64_t packet_id{0};
     };
 
     struct TelemetryData
@@ -65,7 +75,7 @@ namespace edgenetswitch
                                      TelemetryData,
                                      HealthStatus,
                                      Packet,
-                                     PacketDropReason>;
+                                     PacketDropped>;
         Payload payload{};
     };
 
