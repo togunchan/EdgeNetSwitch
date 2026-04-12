@@ -11,19 +11,25 @@ namespace edgenetswitch
                           const Packet &p = std::get<Packet>(msg.payload);
 
                           rx_packets_.fetch_add(1, std::memory_order_relaxed);
-                          rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed); });
+                          rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed); 
+                          processed_packets_.fetch_add(1, std::memory_order_relaxed); });
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {
                           const auto drop = std::get<PacketDropped>(msg.payload);
-
                           drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed); });
+
+        bus.subscribe(MessageType::PacketRx, [this](const Message &msg)
+                      { ingress_packets_.fetch_add(1, std::memory_order_relaxed); });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
     {
         const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
         const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
+        const std::uint64_t ingress_packets = ingress_packets_.load(std::memory_order_relaxed);
+        const std::uint64_t processed_packets = processed_packets_.load(std::memory_order_relaxed);
+        const std::uint64_t processing_gap = ingress_packets >= processed_packets ? ingress_packets - processed_packets : 0;
 
         std::unordered_map<PacketDropReason, std::uint64_t> drop_snapshot;
 
@@ -39,7 +45,11 @@ namespace edgenetswitch
             .rx_bytes_per_sec = 0,
             .drops_by_reason = std::move(drop_snapshot),
             .rx_packets_per_sec_raw = 0,
-            .rx_bytes_per_sec_raw = 0};
+            .rx_bytes_per_sec_raw = 0,
+            .ingress_packets = ingress_packets,
+            .processed_packets = processed_packets,
+            .processing_gap = processing_gap,
+        };
     }
 
     std::uint64_t PacketStats::rxPackets() const

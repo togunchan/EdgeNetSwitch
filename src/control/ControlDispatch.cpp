@@ -247,8 +247,11 @@ namespace edgenetswitch::control
             nlohmann::json j;
             j["rx_packets"] = snap->packet.rx_packets;
             j["rx_bytes"] = snap->packet.rx_bytes;
+            j["ingress_packets"] = snap->packet.ingress_packets;
+            j["processed_packets"] = snap->packet.processed_packets;
+            j["processing_gap"] = snap->packet.processing_gap;
 
-            nlohmann::json drops_json;
+            nlohmann::json drops_json = nlohmann::json::object();
 
             for (const auto &[reason, count] : snap->packet.drops_by_reason)
             {
@@ -268,6 +271,9 @@ namespace edgenetswitch::control
 
         payload += "rx_packets=" + std::to_string(snap->packet.rx_packets) + "\n";
         payload += "rx_bytes=" + std::to_string(snap->packet.rx_bytes) + "\n";
+        payload += "ingress_packets=" + std::to_string(snap->packet.ingress_packets) + "\n";
+        payload += "processed_packets=" + std::to_string(snap->packet.processed_packets) + "\n";
+        payload += "processing_gap=" + std::to_string(snap->packet.processing_gap) + "\n";
 
         std::uint64_t total_drops = 0;
 

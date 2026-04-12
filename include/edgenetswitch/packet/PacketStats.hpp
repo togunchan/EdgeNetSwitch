@@ -16,6 +16,9 @@ namespace edgenetswitch
         std::unordered_map<PacketDropReason, std::uint64_t> drops_by_reason;
         std::uint64_t rx_packets_per_sec_raw{0};
         std::uint64_t rx_bytes_per_sec_raw{0};
+        std::uint64_t ingress_packets{0};
+        std::uint64_t processed_packets{0};
+        std::uint64_t processing_gap{0};
     };
 
     class PacketStats
@@ -37,6 +40,8 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> rx_packets_{0};
         std::atomic<std::uint64_t> rx_bytes_{0};
         std::unordered_map<PacketDropReason, std::atomic<uint64_t>> drop_counters_;
+        std::atomic<std::uint64_t> ingress_packets_{0};
+        std::atomic<std::uint64_t> processed_packets_{0};
     };
 
 } // namespace edgenetswitch

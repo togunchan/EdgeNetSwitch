@@ -212,9 +212,9 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         REQUIRE(j["status"] == "ok");
         CHECK(j["data"].contains("rx_packets"));
         CHECK(j["data"].contains("rx_bytes"));
-        CHECK(j["data"].contains("drops"));
-        CHECK(j["data"]["drops"].contains("parse_error"));
-        CHECK(j["data"]["drops"].contains("validation_error"));
+        REQUIRE(j["data"].contains("drops"));
+        REQUIRE(j["data"]["drops"].contains("parse_error"));
+        REQUIRE(j["data"]["drops"].contains("validation_error"));
         CHECK(j["data"].contains("rx_packets_per_sec"));
         CHECK(j["data"].contains("rx_bytes_per_sec"));
         CHECK(j["data"].contains("rx_packets_per_sec_raw"));
