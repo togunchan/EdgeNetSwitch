@@ -2,10 +2,10 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.3-orange)
+![Version](https://img.shields.io/badge/version-v1.8.4-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.3. Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
+Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.4. Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -130,8 +130,8 @@ PacketStats
 
 - Packet metrics are exposed through the control plane:
   `echo "1.2|packet-stats" | nc -U /tmp/edgenetswitch.sock`
-- Example response fields:
-  `rx_packets`, `rx_bytes`, `drops`
+- Example response fields (v1.8.4+):
+  `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `drops` (by reason)
 
 ### v1.8 – Real UDP Networking
 - Introduces real UDP-based packet ingestion via `recvfrom()`.
@@ -236,6 +236,21 @@ Error example:
 }
 ```
 
+### v1.8.4 – Bounded Async Packet Processing
+- `PacketProcessor` no longer processes packets synchronously in the `PacketRx` subscriber path.
+- Packet ingress is now admitted into an internal bounded queue (`std::deque<Packet>`).
+- A dedicated worker thread drains the queue asynchronously via `processLoop()`.
+- Admission is now capacity-bound (`MAX_QUEUE_SIZE = 1024`).
+- If the queue is full, the system emits `PacketDropped` with reason `QueueOverflow`.
+- Packet pipeline pressure is now observable through:
+  - `ingress_packets`
+  - `processed_packets`
+  - `processing_gap`
+  - structured `drops_by_reason`
+- `packet-stats` text and JSON outputs were extended to expose backlog and overload visibility.
+- This version introduces the first explicit admission boundary in the packet pipeline.
+- A minimal worker-loop implementation is used for correctness first; wakeup optimization is deferred.
+
 ### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
 - Raw NIC driver or kernel data-plane integration
@@ -246,7 +261,7 @@ Error example:
 Deferred to keep the runtime deterministic, avoid premature coupling to hardware-specific data-plane stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure) without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O.
+The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure) without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O. Packet processing is now also bounded asynchronous (`MAX_QUEUE_SIZE = 1024`), with explicit `QueueOverflow` as the overload signal and observable ingress/processed gap under pressure.
 
 ### Packet Flow (v1.8.2)
 
@@ -368,6 +383,7 @@ int main(int argc, char** argv) {
 - `status` payload: `state`, `uptime_ms`, `tick_count`
 - `health` payload: `alive`, `silence_ms`, `last_heartbeat_ms`
 - `metrics` payload: `uptime_ms`, `tick_count`
+- `packet-stats` payload: `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `drops` (by reason)
 - `version` payload: `version`, `protocol`, `build`
 
 ### Control Protocol Error Model
@@ -422,6 +438,11 @@ Packet pipeline behavior is validated using Catch2 unit tests.
 - invalid payload handling
 - pipeline stability across multiple packets
 
+## Design Notes
+
+- [v1.8.2 — Packet Rate Telemetry with EWMA Smoothing](docs/v1.8.2-packet-telemetry.md)
+- [v1.8.4 — Bounded Asynchronous Packet Processing and Pressure Visibility](docs/v1.8.4-bounded-async-packet-processing.md)
+
 ## Project Goals
 - Deterministic daemon architecture.
 - Explicit runtime/control-plane separation.
@@ -429,15 +450,24 @@ Packet pipeline behavior is validated using Catch2 unit tests.
 - Testable subsystems with focused unit tests.
 - Architecture experimentation before hardware exists.
 
-## Non-Goals
-The project intentionally avoids:
+## Current Boundaries (Not Yet)
 
-- Production network switching.
-- Kernel driver development.
-- Hardware BSP integration.
-- Real-time guarantees.
+The project intentionally does not include the following at this stage:
 
-These may appear in later stages as the architecture matures.
+- Production-grade network switching logic
+- Kernel driver / data-plane integration
+- Hardware BSP / Yocto deployment
+- Hard real-time guarantees
+
+These are not excluded permanently.
+
+They are deferred intentionally to preserve:
+- architectural clarity
+- deterministic behavior
+- observability-first design
+
+Each of these areas is planned to be introduced in later phases,
+after the user-space runtime model is fully validated under load.
 
 ## Project Status
 EdgeNetSwitch is an experimental systems architecture project exploring
