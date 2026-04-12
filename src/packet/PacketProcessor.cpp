@@ -97,7 +97,7 @@ namespace edgenetswitch
             static_cast<std::uint32_t>(processedPacket.payload.size());
 
         // Simulate processing cost (CPU / parsing / workload) to test pipeline behavior under load
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         Message processed{};
         processed.type = MessageType::PacketProcessed;
