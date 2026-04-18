@@ -43,6 +43,8 @@ namespace edgenetswitch
         const std::uint64_t ingress_packets = ingress_packets_.load(std::memory_order_relaxed);
         const std::uint64_t processed_packets = processed_packets_.load(std::memory_order_relaxed);
         const std::uint64_t processing_gap = ingress_packets >= processed_packets ? ingress_packets - processed_packets : 0;
+        const std::uint64_t terminal_events = terminal_events_.load(std::memory_order_relaxed);
+        const std::uint64_t pending_terminal_events = ingress_packets > terminal_events ? ingress_packets - terminal_events : 0;
 
         std::unordered_map<PacketDropReason, std::uint64_t> drop_snapshot;
 
@@ -62,8 +64,9 @@ namespace edgenetswitch
             .ingress_packets = ingress_packets,
             .processed_packets = processed_packets,
             .processing_gap = processing_gap,
-            .terminal_events = terminal_events_.load(std::memory_order_relaxed),
-            .duplicate_events = duplicate_events_.load(std::memory_order_relaxed)};
+            .terminal_events = terminal_events,
+            .duplicate_events = duplicate_events_.load(std::memory_order_relaxed),
+            .pending_terminal_events = pending_terminal_events};
     }
 
     std::uint64_t PacketStats::rxPackets() const

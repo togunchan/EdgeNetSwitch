@@ -23,6 +23,7 @@ namespace edgenetswitch
         std::uint64_t processing_gap{0};
         std::uint64_t terminal_events{0};
         std::uint64_t duplicate_events{0};
+        std::uint64_t pending_terminal_events{0};
     };
 
     class PacketStats
