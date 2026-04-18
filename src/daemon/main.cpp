@@ -128,11 +128,13 @@ namespace
             int client_fd = ::accept(control_fd, nullptr, nullptr);
             if (client_fd < 0)
             {
+                if (stopRequested.load(std::memory_order_relaxed))
+                    break;
+
                 // If accept() fails with EINTR (interrupted by signal), just retry.
                 if (errno == EINTR)
-                {
                     continue;
-                }
+
                 // For other errors, log the failure and continue the loop.
                 Logger::error("Control socket accept failed");
                 continue;
@@ -421,16 +423,16 @@ int main(int argc, char *argv[])
         debugReaderThread.join();
     }
 #endif
-    if (controlThread.joinable())
-    {
-        controlThread.join();
-    }
-
     destroyControlSocket(control_fd);
 
     if (udpReceiver)
     {
         udpReceiver->stop();
+    }
+
+    if (controlThread.joinable())
+    {
+        controlThread.join();
     }
 
     exportManager.stop();
