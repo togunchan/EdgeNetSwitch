@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
+#include <unordered_set>
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 
@@ -19,6 +21,8 @@ namespace edgenetswitch
         std::uint64_t ingress_packets{0};
         std::uint64_t processed_packets{0};
         std::uint64_t processing_gap{0};
+        std::uint64_t terminal_events{0};
+        std::uint64_t duplicate_events{0};
     };
 
     class PacketStats
@@ -35,6 +39,7 @@ namespace edgenetswitch
         void incrementParseError();
         void incrementValidationError();
         void updateRates(std::uint64_t now_ms) const;
+        void onTerminal(uint64_t id);
 
     private:
         std::atomic<std::uint64_t> rx_packets_{0};
@@ -42,6 +47,10 @@ namespace edgenetswitch
         std::unordered_map<PacketDropReason, std::atomic<uint64_t>> drop_counters_;
         std::atomic<std::uint64_t> ingress_packets_{0};
         std::atomic<std::uint64_t> processed_packets_{0};
+        std::atomic<std::uint64_t> terminal_events_{0};
+        std::atomic<std::uint64_t> duplicate_events_{0};
+        std::unordered_set<std::uint64_t> seen_;
+        std::mutex seen_mutex_;
     };
 
 } // namespace edgenetswitch

@@ -263,6 +263,8 @@ namespace edgenetswitch::control
             j["rx_bytes_per_sec"] = snap->packet.rx_bytes_per_sec;
             j["rx_packets_per_sec_raw"] = snap->packet.rx_packets_per_sec_raw;
             j["rx_bytes_per_sec_raw"] = snap->packet.rx_bytes_per_sec_raw;
+            j["terminal_events"] = snap->packet.terminal_events;
+            j["duplicate_events"] = snap->packet.duplicate_events;
 
             return makeJsonSuccess(j);
         }
@@ -289,6 +291,8 @@ namespace edgenetswitch::control
         payload += "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n";
         payload += "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
         payload += "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw);
+        payload += "terminal_events=" + std::to_string(snap->packet.terminal_events);
+        payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events);
 
         return ControlResponse{
             .success = true,
