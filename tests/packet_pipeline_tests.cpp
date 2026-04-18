@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 using namespace edgenetswitch;
 
@@ -195,14 +196,22 @@ TEST_CASE("Packet lifecycle reaches terminal state under normal processing", "[P
     REQUIRE(waitUntil([&]
                       {
                           metrics = stats.snapshotAt(now_ms);
-                          const std::uint64_t drops_total = dropsTotal(metrics);
-                          return metrics.ingress_packets >= packet_count &&
-                                 metrics.terminal_events >= packet_count &&
-                                 metrics.duplicate_events == 0 &&
-                                 metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events &&
-                                 metrics.terminal_events == metrics.processed_packets + drops_total; }));
+                          return metrics.ingress_packets == packet_count;
+                      }));
 
-    REQUIRE(metrics.ingress_packets >= packet_count);
+    REQUIRE(waitUntil([&]
+                      {
+                          metrics = stats.snapshotAt(now_ms);
+                          return metrics.pending_terminal_events == 0;
+                      }));
+
+    metrics = stats.snapshotAt(now_ms);
+    const std::uint64_t drops_total = dropsTotal(metrics);
+
+    REQUIRE(metrics.ingress_packets == packet_count);
+    REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events);
+    REQUIRE(metrics.terminal_events == metrics.processed_packets + drops_total);
 }
 
 TEST_CASE("Packet lifecycle accounting remains consistent for validation drops", "[PacketPipeline]")
@@ -233,15 +242,24 @@ TEST_CASE("Packet lifecycle accounting remains consistent for validation drops",
                       {
                           metrics = stats.snapshotAt(now_ms);
                           const auto validation_it = metrics.drops_by_reason.find(PacketDropReason::ValidationError);
-                          const std::uint64_t drops_total = dropsTotal(metrics);
-                          return metrics.ingress_packets >= packet_count &&
+                          return metrics.ingress_packets == packet_count &&
                                  validation_it != metrics.drops_by_reason.end() &&
-                                 validation_it->second == packet_count &&
-                                 metrics.duplicate_events == 0 &&
-                                 metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events &&
-                                 metrics.terminal_events == metrics.processed_packets + drops_total; }));
+                                 validation_it->second == packet_count;
+                      }));
 
-    REQUIRE(metrics.ingress_packets >= packet_count);
+    REQUIRE(waitUntil([&]
+                      {
+                          metrics = stats.snapshotAt(now_ms);
+                          return metrics.pending_terminal_events == 0;
+                      }));
+
+    metrics = stats.snapshotAt(now_ms);
+    const std::uint64_t drops_total = dropsTotal(metrics);
+
+    REQUIRE(metrics.ingress_packets == packet_count);
+    REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events);
+    REQUIRE(metrics.terminal_events == metrics.processed_packets + drops_total);
 }
 
 TEST_CASE("Packet lifecycle accounting remains consistent under real overload", "[PacketPipeline][Overload]")
@@ -250,36 +268,61 @@ TEST_CASE("Packet lifecycle accounting remains consistent under real overload", 
     MessagingBus &bus = fixture.bus;
     PacketStats &stats = fixture.stats;
     constexpr std::uint64_t now_ms = 4000;
-    constexpr std::uint64_t overload_count = 20000;
+    constexpr std::size_t producer_count = 8;
+    constexpr std::uint64_t packets_per_producer = 5000;
+    constexpr std::uint64_t overload_count = producer_count * packets_per_producer;
+    const std::string payload(128, 'o');
 
-    Message msg{};
-    msg.type = MessageType::PacketRx;
+    std::vector<std::thread> producers;
+    producers.reserve(producer_count);
 
-    for (std::uint64_t i = 0; i < overload_count; ++i)
+    for (std::size_t producer = 0; producer < producer_count; ++producer)
     {
-        Packet packet{};
-        packet.id = 9000 + i;
-        packet.timestamp_ms = now_ms + i;
-        packet.payload = std::string(128, 'o');
-        msg.timestamp_ms = packet.timestamp_ms;
-        msg.payload = packet;
-        bus.publish(msg);
+        producers.emplace_back([&, producer]
+                               {
+                                   Message msg{};
+                                   msg.type = MessageType::PacketRx;
+
+                                   for (std::uint64_t i = 0; i < packets_per_producer; ++i)
+                                   {
+                                       Packet packet{};
+                                       packet.id = 9000 + (producer * packets_per_producer) + i;
+                                       packet.timestamp_ms = now_ms + packet.id;
+                                       packet.payload = payload;
+                                       msg.timestamp_ms = packet.timestamp_ms;
+                                       msg.payload = packet;
+                                       bus.publish(msg);
+                                   } });
+    }
+
+    for (auto &producer : producers)
+    {
+        producer.join();
     }
 
     REQUIRE(waitUntil([&]
                       {
-                        auto m = stats.snapshotAt(now_ms);
-                        const auto overflow_it = m.drops_by_reason.find(PacketDropReason::QueueOverflow);
+                          auto m = stats.snapshotAt(now_ms);
+                          const auto overflow_it = m.drops_by_reason.find(PacketDropReason::QueueOverflow);
+                          return m.ingress_packets >= overload_count &&
+                                 overflow_it != m.drops_by_reason.end() &&
+                                 overflow_it->second > 0;
+                      }));
 
-                        return m.ingress_packets == overload_count &&
-                                overflow_it != m.drops_by_reason.end() &&
-                                overflow_it->second > 0 &&
-                                m.pending_terminal_events == 0 && 
-                                m.duplicate_events == 0; }));
+    REQUIRE(waitUntil([&]
+                      {
+                          auto m = stats.snapshotAt(now_ms);
+                          return m.pending_terminal_events == 0;
+                      }));
 
     auto m = stats.snapshotAt(now_ms);
     const std::uint64_t drops_total = dropsTotal(m);
-    REQUIRE(m.ingress_packets == overload_count);
+    const auto overflow_it = m.drops_by_reason.find(PacketDropReason::QueueOverflow);
+
+    REQUIRE(overflow_it != m.drops_by_reason.end());
+    REQUIRE(overflow_it->second > 0);
+    REQUIRE(m.duplicate_events == 0);
+    REQUIRE(m.ingress_packets >= overload_count);
     REQUIRE(m.ingress_packets == m.terminal_events);
     REQUIRE(m.terminal_events == m.processed_packets + drops_total);
 }
