@@ -1,6 +1,7 @@
 #pragma once
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include <condition_variable>
 #include <thread>
 #include <deque>
 #include <mutex>
@@ -20,6 +21,7 @@ namespace edgenetswitch
     private:
         std::deque<Packet> queue_;
         std::mutex queue_mutex_;
+        std::condition_variable cv_;
         std::thread worker_;
         std::atomic<bool> running_{true};
         static constexpr size_t MAX_QUEUE_SIZE = 1024;

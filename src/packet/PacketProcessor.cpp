@@ -14,9 +14,19 @@ namespace edgenetswitch
                            if (!packet)
                                return;
 
-                           std::lock_guard<std::mutex> lock(queue_mutex_);
-                           if (queue_.size() >= MAX_QUEUE_SIZE)
+                           bool shouldDrop = false;
                            {
+                               std::lock_guard<std::mutex> lock(queue_mutex_);
+                               if (queue_.size() >= MAX_QUEUE_SIZE)
+                               {
+                                   shouldDrop = true;
+                               }
+                               else {
+                                   queue_.push_back(*packet);
+                               }
+                           }
+
+                           if(shouldDrop){
                                Message dropMsg{};
                                dropMsg.type = MessageType::PacketDropped;
                                dropMsg.timestamp_ms = nowMs();
@@ -26,9 +36,10 @@ namespace edgenetswitch
                                    .packet_id = packet->id};
 
                                bus_.publish(std::move(dropMsg));
-                               return;
                            }
-                           queue_.push_back(*packet); });
+                           else {
+                           cv_.notify_one();
+                           } });
 
         worker_ = std::thread([this]()
                               { processLoop(); });
@@ -37,28 +48,31 @@ namespace edgenetswitch
     PacketProcessor::~PacketProcessor()
     {
         running_.store(false, std::memory_order_relaxed);
+        cv_.notify_all();
         if (worker_.joinable())
-        {
             worker_.join();
-        }
     }
 
     void PacketProcessor::processLoop()
     {
-        while (running_)
+        while (true)
         {
             Packet packet;
 
             {
-                std::lock_guard<std::mutex> lock(queue_mutex_);
+                std::unique_lock<std::mutex> lock(queue_mutex_);
 
-                if (queue_.empty())
-                    continue;
+                cv_.wait(lock, [this]
+                         { 
+                            // Continue waiting only while queue is empty AND system is running.
+                            return !queue_.empty() || !running_; });
+
+                if (!running_ && queue_.empty())
+                    break;
 
                 packet = std::move(queue_.front());
                 queue_.pop_front();
             }
-
             processPacket(packet);
         }
     }
