@@ -57,3 +57,14 @@ The primary asynchronous processing boundary in the packet path is the PacketPro
 - Backpressure is explicit via queue overflow
 - System is predictable but execution cost is coupled to publisher thread
 - Design favors determinism and observability over parallel throughput
+
+## Event Flow Diagram
+
+1. **UDP ingress (UDP thread)**: Datagram arrives; parser/ingress validation runs. Invalid input emits `PacketDropped` (parse/ingress rejection) via `MessagingBus::publish()`.
+2. **Ingress publish (UDP thread, synchronous)**: For accepted input, UDP thread publishes `PacketRx`. `publish()` runs matching callbacks immediately on the UDP thread and returns only after completion.
+3. **Admission callback (UDP thread)**: PacketProcessor `PacketRx` subscriber executes on the UDP thread (thread-affinity). It performs bounded admission: enqueue packet or emit immediate `PacketDropped(reason=QueueOverflow)`.
+4. **Async handoff boundary**: Enqueue operation transfers work from UDP thread to PacketProcessor queue; this is the primary asynchronous processing boundary.
+5. **Processing stage (PacketProcessor worker thread)**: Worker dequeues packet and performs processor-stage validation/finalization.
+6. **Terminal publish (worker thread, synchronous)**: Worker publishes terminal event: `PacketRx → PacketProcessed` on success, or `PacketRx → PacketDropped` on processor-stage failure. Dispatch is synchronous and sequential on the worker thread.
+7. **Terminal subscribers (worker thread)**: Subscribers for `PacketProcessed`/`PacketDropped` execute on the worker thread for that publish call (no implicit parallelism inside bus dispatch).
+8. **Concurrent runtime loop (main thread)**: Main thread independently publishes periodic telemetry/health events; those callbacks execute synchronously on the main thread and are not deferred by `MessagingBus`.
