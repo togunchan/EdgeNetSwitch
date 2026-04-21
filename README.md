@@ -11,10 +11,30 @@ Designed to model real-world concurrency, networking, and lifecycle behavior bef
 
 Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
 
+## What this project demonstrates
+
+- Deterministic multi-threaded C++ runtime design
+- Explicit concurrency model (synchronous event bus + async processing boundaries)
+- Real UDP networking integrated into a controlled runtime
+- Backpressure handling with bounded queues and drop policies
+- Lifecycle-consistent event-driven architecture (PacketRx → terminal outcome)
+- Production-style shutdown sequencing and thread coordination
+
+This project simulates how a real embedded Linux network device behaves before hardware or kernel integration exists.
+
+---
+
 ## Why this exists
-- Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
-- Focuses on deterministic daemon design with built-in observability so runtime behavior is explainable.
-- Keeps architecture explicit and testable, enabling confident iteration before hardware bring-up.
+
+Most embedded/networking systems are developed directly on hardware,
+making debugging, observability, and iteration difficult.
+
+EdgeNetSwitch isolates the runtime layer first:
+- deterministic execution
+- observable behavior
+- testable concurrency
+
+This enables designing and validating system behavior before hardware, kernel modules, or Yocto integration are introduced.
 
 ## Quick Start
 Minimal local run flow:
