@@ -2,10 +2,14 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.4-orange)
+![Version](https://img.shields.io/badge/version-v1.8.5-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Virtual embedded Linux edge device platform for deterministic, testable user-space daemons before real hardware, networking, or Yocto integration. Version: v1.8.4. Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
+Deterministic C++20 runtime simulating an embedded Linux network device.
+
+Designed to model real-world concurrency, networking, and lifecycle behavior before hardware, NICs, or BSP layers exist.
+
+Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
 
 ## Why this exists
 - Embedded/networking teams need a safe, repeatable target before boards, NICs, or BSPs exist.
@@ -28,8 +32,7 @@ cmake --build build
 
 The daemon runs a deterministic, tick-driven runtime loop.
 
-External I/O such as telemetry export and control commands are isolated
-from the runtime tick loop.
+External I/O (telemetry export, control commands) is isolated from the runtime tick loop.
 
 The control socket is exposed at:
 `/tmp/edgenetswitch.sock`
@@ -251,6 +254,16 @@ Error example:
 - This version introduces the first explicit admission boundary in the packet pipeline.
 - A minimal worker-loop implementation is used for correctness first; wakeup optimization is deferred.
 
+## v1.8.5 — Concurrency Stabilization & Lifecycle Consistency
+
+### Highlights
+- `PacketProcessor` worker execution is condition-variable driven; busy-wait behavior is removed.
+- Shutdown sequencing is hardened to avoid timing-dependent teardown races across runtime and worker boundaries.
+- Ensures packet lifecycle invariants remain consistent under concurrency.
+- Eliminates timing-dependent inconsistencies in ingress-to-terminal accounting.
+- `MessagingBus` threading semantics are explicitly documented as synchronous, blocking, and thread-affine dispatch.
+- Threading behavior is documented in [docs/threading_model.md](docs/threading_model.md).
+
 ### Intentionally not included (as of v1.8)
 - Runtime mutation or control commands
 - Raw NIC driver or kernel data-plane integration
@@ -262,6 +275,7 @@ Deferred to keep the runtime deterministic, avoid premature coupling to hardware
 
 ## Runtime & control-plane architecture
 The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure) without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O. Packet processing is now also bounded asynchronous (`MAX_QUEUE_SIZE = 1024`), with explicit `QueueOverflow` as the overload signal and observable ingress/processed gap under pressure.
+- MessagingBus dispatch is synchronous and blocking; callbacks execute on the publisher thread (thread-affinity).
 
 ### Packet Flow (v1.8.2)
 
