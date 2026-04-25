@@ -157,15 +157,15 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
         .tick_count = 1,
         .timestamp_ms = 1000};
 
-    bus.publish(msg);
-
-    REQUIRE(waitUntil([&]
-                      { return stats.snapshotAt(now_ms).ingress_packets >= 1; }));
+    REQUIRE_NOTHROW(bus.publish(msg));
 
     auto metrics = stats.snapshotAt(now_ms);
 
-    REQUIRE(metrics.ingress_packets == 1);
+    REQUIRE(metrics.ingress_packets == 0);
     REQUIRE(metrics.processed_packets == 0);
+    REQUIRE(metrics.terminal_events == 0);
+    REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.pending_terminal_events == 0);
     REQUIRE(metrics.rx_packets == 0);
     REQUIRE(metrics.rx_bytes == 0);
 }
@@ -210,6 +210,45 @@ TEST_CASE("Packet lifecycle reaches terminal state under normal processing", "[P
 
     REQUIRE(metrics.ingress_packets == packet_count);
     REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events);
+    REQUIRE(metrics.terminal_events == metrics.processed_packets + drops_total);
+}
+
+TEST_CASE("Repeated packet ids are not duplicate lifecycle events", "[PacketPipeline]")
+{
+    PacketPipelineFixture fixture;
+    MessagingBus &bus = fixture.bus;
+    PacketStats &stats = fixture.stats;
+    constexpr std::uint64_t now_ms = 2500;
+
+    Message msg{};
+    msg.type = MessageType::PacketRx;
+
+    for (std::uint64_t i = 0; i < 2; ++i)
+    {
+        Packet packet{};
+        packet.id = 700;
+        packet.timestamp_ms = now_ms + i;
+        packet.payload = std::string(64, 'r');
+        msg.timestamp_ms = packet.timestamp_ms;
+        msg.payload = packet;
+        bus.publish(msg);
+    }
+
+    PacketMetrics metrics{};
+    REQUIRE(waitUntil([&]
+                      {
+                          metrics = stats.snapshotAt(now_ms);
+                          return metrics.ingress_packets == 2 &&
+                                 metrics.pending_terminal_events == 0;
+                      }));
+
+    metrics = stats.snapshotAt(now_ms);
+    const std::uint64_t drops_total = dropsTotal(metrics);
+
+    REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.processed_packets == 2);
+    REQUIRE(metrics.terminal_events == 2);
     REQUIRE(metrics.ingress_packets == metrics.terminal_events + metrics.pending_terminal_events);
     REQUIRE(metrics.terminal_events == metrics.processed_packets + drops_total);
 }

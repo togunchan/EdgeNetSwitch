@@ -1,18 +1,13 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include <cmath>
+#include <iostream>
 
 namespace edgenetswitch
 {
-    void PacketStats::onTerminal(uint64_t id)
+    void PacketStats::onTerminal()
     {
         terminal_events_.fetch_add(1, std::memory_order_relaxed);
-
-        std::lock_guard<std::mutex> lock(seen_mutex_);
-        if (!seen_.insert(id).second)
-        {
-            duplicate_events_.fetch_add(1, std::memory_order_relaxed);
-        }
     }
 
     PacketStats::PacketStats(MessagingBus &bus)
@@ -24,16 +19,23 @@ namespace edgenetswitch
                         rx_packets_.fetch_add(1, std::memory_order_relaxed);
                         rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed); 
                         processed_packets_.fetch_add(1, std::memory_order_relaxed); 
-                        onTerminal(p.id); });
+                        onTerminal(); });
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {
                         const auto drop = std::get<PacketDropped>(msg.payload);
-                        drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed); 
-                        onTerminal(drop.packet_id); });
+                        drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed);
+                        onTerminal(); });
 
         bus.subscribe(MessageType::PacketRx, [this](const Message &msg)
-                      { ingress_packets_.fetch_add(1, std::memory_order_relaxed); });
+                      { 
+                        const Packet *p = std::get_if<Packet>(&msg.payload);
+
+                        if (!p){
+                            std::cerr << "[PacketStats] invalid PacketRx payload\n";
+                            return;
+                        }
+                        ingress_packets_.fetch_add(1, std::memory_order_relaxed); });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
