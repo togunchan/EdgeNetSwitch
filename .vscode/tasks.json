@@ -1,0 +1,96 @@
+{
+    "tasks": [
+        {
+            "label": "CMake: configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "CMake: build",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "dependsOn": [
+                "CMake: configure"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: clang++ build active file",
+            "command": "/usr/bin/clang++",
+            "args": [
+                "-fcolor-diagnostics",
+                "-fansi-escape-codes",
+                "-std=c++20",
+                "-g",
+                "-I",
+                "${workspaceFolder}/include",
+                "-I",
+                "${workspaceFolder}/src",
+                "-I",
+                "${workspaceFolder}/third_party/nlohmann_json/include",
+                "${workspaceFolder}/src/daemon/main.cpp",
+                "${workspaceFolder}/src/control/ControlDispatch.cpp",
+                "${workspaceFolder}/src/runtime/RuntimeStatusBuilder.cpp",
+                "${workspaceFolder}/src/runtime/SnapshotPublisher.cpp",
+                "${workspaceFolder}/src/packet/PacketParser.cpp",
+                "${workspaceFolder}/src/packet/PacketGenerator.cpp",
+                "${workspaceFolder}/src/packet/PacketProcessor.cpp",
+                "${workspaceFolder}/src/packet/PacketStats.cpp",
+                "${workspaceFolder}/src/packet/PacketValidator.cpp",
+                "${workspaceFolder}/src/network/UdpReceiver.cpp",
+                "${workspaceFolder}/src/core/Logger.cpp",
+                "${workspaceFolder}/src/core/Config.cpp",
+                "${workspaceFolder}/src/messaging/MessagingBus.cpp",
+                "${workspaceFolder}/src/telemetry/Telemetry.cpp",
+                "${workspaceFolder}/src/telemetry/WindowedEwmaRateSmoother.cpp",
+                "${workspaceFolder}/src/telemetry/TelemetryExportManager.cpp",
+                "${workspaceFolder}/src/telemetry/InMemoryTelemetryExporter.cpp",
+                "${workspaceFolder}/src/telemetry/FileTelemetryExporter.cpp",
+                "${workspaceFolder}/src/runtime/HealthMonitor.cpp",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "Builds the EdgeNetSwitch daemon when VS Code's Debug C/C++ File action invokes the generated active-file task."
+        }
+    ],
+    "version": "2.0.0"
+}
