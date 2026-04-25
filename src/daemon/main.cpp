@@ -329,6 +329,11 @@ int main(int argc, char *argv[])
                                     std::cref(g_stopRequested),
                                     std::cref(cfg));
     }
+    if (control_fd < 0)
+    {
+        Logger::error("Fatal: control socket initialization failed");
+        return EXIT_FAILURE;
+    }
     else
     {
         Logger::warn("Control socket not available; continuing without IPC");
