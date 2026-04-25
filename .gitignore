@@ -5,6 +5,8 @@ out/
 *.a
 *.so
 *.ko
+*.dSYM/
+/src/daemon/main
 
 # CMake
 CMakeFiles/
