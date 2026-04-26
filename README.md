@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.5-orange)
+![Version](https://img.shields.io/badge/version-v1.8.7-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 Deterministic C++20 runtime simulating an embedded Linux network device.
@@ -13,12 +13,13 @@ Control protocol v1.2 (JSON response format stabilized, legacy framing deprecate
 
 ## What this project demonstrates
 
-- Deterministic multi-threaded C++ runtime design
-- Explicit concurrency model (synchronous event bus + async processing boundaries)
-- Real UDP networking integrated into a controlled runtime
-- Backpressure handling with bounded queues and drop policies
-- Lifecycle-consistent event-driven architecture (PacketRx → terminal outcome)
-- Production-style shutdown sequencing and thread coordination
+- Deterministic multi-threaded C++ runtime architecture
+- Explicit concurrency boundaries: synchronous event bus, asynchronous processing paths
+- Real UDP ingress inside a controlled event-driven runtime
+- Bounded queues, overload signaling, and drop accounting
+- Lifecycle-correct observability from `PacketRx` to terminal outcome
+- Explicit identity separation: `lifecycle_id` as runtime identity, `packet.id` as payload identity
+- Production-style shutdown sequencing and thread ownership
 
 This project simulates how a real embedded Linux network device behaves before hardware or kernel integration exists.
 
@@ -136,7 +137,7 @@ echo "id=42;payload=hello" | nc -u -w1 127.0.0.1 9000
 - Introduces a virtual data plane used to exercise packet processing behavior before real NIC or kernel integration.
 - `PacketGenerator` emits synthetic packets and publishes `MessageType::PacketRx`.
 - `PacketProcessor` subscribes to `MessageType::PacketRx`, processes packet payloads, and publishes `MessageType::PacketProcessed`.
-- `PacketStats` subscribes to `MessageType::PacketProcessed` and accumulates packet counters.
+- `PacketStats` subscribes to `MessageType::PacketProcessed` and accumulates processed packet counters.
 - Event pipeline:
 
 ```text
@@ -153,17 +154,14 @@ PacketStats
 
 - Packet metrics are exposed through the control plane:
   `echo "1.2|packet-stats" | nc -U /tmp/edgenetswitch.sock`
-- Example response fields (v1.8.4+):
-  `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `drops` (by reason)
 
 ### v1.8 – Real UDP Networking
 - Introduces real UDP-based packet ingestion via `recvfrom()`.
 - Configurable UDP ingress port (default `9000`).
 - `PacketParser` validates and extracts packet fields from raw UDP data.
 - UDP-ingested `PacketRx` events are timestamped at ingress via `nowMs()`.
-- Both PacketGenerator (synthetic) and UDP ingress (real) produce PacketRx events that are published into the MessagingBus.
+- UDP ingress publishes validated packets into the same `MessagingBus` path as the synthetic generator.
 - Echo response implemented via `sendto()`.
-- `PacketStats` is updated from real incoming packets.
 - Event pipeline:
 
 ```text
@@ -178,14 +176,13 @@ MessagingBus
 - UDP ingress integrates with the existing packet pipeline introduced in v1.7.
 
 ### Packet Processing Pipeline (v1.8.1)
-- UDP-based packet ingestion (POSIX sockets)
 - Structured packet parsing (`PacketParser`)
 - Separation of parse errors vs validation errors
 - Event-driven drop handling via `MessagingBus` (`PacketDropped`)
 - Packet processing stage (`PacketProcessor`)
 - Payload vs wire size separation (network vs processing layer)
 - Real-time packet metrics (`PacketStats`)
-- Control-plane visibility via `packet-stats` command
+- Control-plane visibility for packet pipeline metrics via `packet-stats`
 - Improves observability and separation of concerns in the packet pipeline.
 
 ### Packet Rate Telemetry (v1.8.2)
@@ -284,29 +281,29 @@ Error example:
 - `MessagingBus` threading semantics are explicitly documented as synchronous, blocking, and thread-affine dispatch.
 - Threading behavior is documented in [docs/threading_model.md](docs/threading_model.md).
 
-### Intentionally not included (as of v1.8)
-- Runtime mutation or control commands
-- Raw NIC driver or kernel data-plane integration
-- Yocto or QEMU integration
-- Remote TCP/IP management
-- Authentication or authorization
-- Hard real-time guarantees
-Deferred to keep the runtime deterministic, avoid premature coupling to hardware-specific data-plane stacks, and preserve a minimal, observable surface while the control plane remains read-only and stable.
+### v1.8.7 — Lifecycle-Based Packet Accounting
+- UDP ingress now assigns a `lifecycle_id` that represents one observed packet lifecycle from ingress admission through exactly one terminal outcome.
+- `packet.id` is treated as payload identity, not runtime lifecycle identity; using it for duplicate terminal detection conflated sender-controlled data with runtime accounting.
+- `PacketRx` carries the ingress `lifecycle_id`; `PacketProcessor` propagates the same value into `PacketProcessed` or `PacketDropped`; all `PacketDropped` events now carry `lifecycle_id`, including parse, validation, queue-overflow, and processor-stage drops.
+- `duplicate_events` now reports lifecycle violations: more than one terminal event for the same `lifecycle_id`. It no longer reports `packet.id` reuse.
+- `PacketStats` enforces lifecycle correctness by counting terminal events by `lifecycle_id`, rejecting duplicate terminal accounting, and maintaining strict ingress-to-terminal invariants.
+- Terminal accounting is strictly enforced: `terminal_events` is the sum of successful processing and all drop outcomes, while `pending_terminal_events` represents admitted lifecycles that have not yet produced a terminal event.
 
 ## Runtime & control-plane architecture
-The tick-driven runtime owns execution while all subsystems communicate via the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using the versioned control protocol (v1.2), dispatches commands through a metadata-driven table, and returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure) without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue so runtime ticks do not block on exporter I/O. Packet processing is now also bounded asynchronous (`MAX_QUEUE_SIZE = 1024`), with explicit `QueueOverflow` as the overload signal and observable ingress/processed gap under pressure.
+The tick-driven runtime owns execution. Subsystems communicate through the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using control protocol v1.2, dispatches commands through metadata, and returns JSON responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue, so runtime ticks do not block on exporter I/O. Packet processing is also bounded asynchronous (`MAX_QUEUE_SIZE = 1024`), with explicit `QueueOverflow` signaling and observable ingress/processed gap under pressure. Packet lifecycle identity is assigned at UDP ingress as `lifecycle_id` and propagates through `PacketRx` → `PacketProcessed` / `PacketDropped` → `PacketStats`, keeping runtime identity distinct from payload identity.
 - MessagingBus dispatch is synchronous and blocking; callbacks execute on the publisher thread (thread-affinity).
 
-### Packet Flow (v1.8.2)
+### Packet Flow (v1.8.7)
 
-UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
+UDP Receiver → Parser → Validator → PacketRx (`lifecycle_id`) → Processor → PacketProcessed / PacketDropped → PacketStats
 
 ```
 +-------------------------------------------+
 | Network Ingress (v1.8)                    |
 |   UDP Socket (recvfrom)                   |
 |        -> PacketParser (validate)         |
-|        -> PacketRx (timestamp=nowMs)      |
+|        -> PacketRx (timestamp=nowMs,      |
+|                     lifecycle_id=...)     |
 +--------------------+----------------------+
                      | (event injection)
                      v
@@ -317,7 +314,7 @@ UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
 |       -> HealthMonitor       |                                                     |
 |       -> PacketGenerator ----+                                                     |
 |                              |                                                     |
-|  UDP Ingress (recvfrom) -----+--> PacketRx ---->                                   |
+|  UDP Ingress (recvfrom) -----+--> PacketRx(lifecycle_id) ---->                     |
 |                                                v                                   |
 |                            +-----------------------+                               |
 |                            |      MessagingBus     |  internal event backbone      |
@@ -325,7 +322,10 @@ UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
 |                                  |           |                                     |
 |                                  |           +--> PacketProcessor                  |
 |                                  |                 |                               |
-|                                  |                 +--PacketProcessed-->PacketStats|
+|                                  |                 +--PacketProcessed(lifecycle_id)|
+|                                  |                 |                 -->PacketStats|
+|                                  |                 +--PacketDropped(lifecycle_id)  |
+|                                  |                                   -->PacketStats|
 |                                  |                                                 |
 |                                  +--> Telemetry sample -> RuntimeMetrics           |
 |                                                                                    |
@@ -346,10 +346,26 @@ UDP Receiver → Parser → Validator → Processor → MessagingBus → Stats
                                                 +------------------------------------+
 ```
 
+## Packet Lifecycle Model
+`lifecycle_id` is the runtime identity of one packet lifecycle. It is assigned once at UDP ingress, before asynchronous admission or early rejection, and remains attached to every event for that observed lifecycle. The lifecycle begins when UDP ingress receives a datagram and allocates the identifier; it ends when exactly one terminal event is published: `PacketProcessed` for success or `PacketDropped` for parse errors, validation failures, queue overflow, or processor-stage rejection.
+
+`packet.id` is not used for lifecycle correctness. It is payload identity supplied by traffic, not an ownership token minted by the runtime. A sender can reuse it, omit it, replay it, or preserve it across retries; those are payload semantics, not evidence of duplicate terminal events. Conflating `packet.id` with lifecycle identity makes observability dependent on external input quality.
+
+`duplicate_events` reports lifecycle violations only. `PacketStats` increments it when more than one terminal event appears for the same `lifecycle_id`; reuse of `packet.id` does not affect the counter. This keeps duplicate detection aligned with the runtime contract: one ingress lifecycle produces exactly one terminal outcome.
+
+## Metrics Invariants
+```text
+terminal_events == processed_packets + total_drops
+ingress_packets == terminal_events + pending_terminal_events
+```
+
+These invariants make packet accounting auditable under concurrency. The first invariant guarantees that every terminal event is classified as either successful processing or a drop, with no unclassified terminal outcome. The second invariant guarantees that ingress accounting cannot silently lose packets: every ingress lifecycle is either terminal or explicitly pending. Together they make `PacketStats` a correctness boundary rather than a best-effort counter aggregate.
+
 ## Daemon loop & message flow
 - Startup: install signal handlers; load JSON config; initialize Logger, MessagingBus, Telemetry, HealthMonitor, `TelemetryExportManager`; open control socket; start control thread and export worker thread.
 - Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
 - Telemetry export path: `MessageType::Telemetry` callbacks build `RuntimeMetrics` and call `exportManager.enqueue()` (non-blocking); when full, queue backpressure drops the oldest sample.
+- Packet lifecycle path: UDP ingress assigns `lifecycle_id`, `PacketRx` carries it into `PacketProcessor`, and the terminal `PacketProcessed` or `PacketDropped` event carries it into `PacketStats`.
 - Export worker: waits on `std::condition_variable`, drains queued samples, and invokes registered exporters off the runtime path.
 - Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
 - Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, stops/joins the export worker thread, publishes `SystemShutdown`, and closes the socket.
@@ -417,7 +433,7 @@ int main(int argc, char** argv) {
 - `status` payload: `state`, `uptime_ms`, `tick_count`
 - `health` payload: `alive`, `silence_ms`, `last_heartbeat_ms`
 - `metrics` payload: `uptime_ms`, `tick_count`
-- `packet-stats` payload: `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `drops` (by reason)
+- `packet-stats` payload: `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `terminal_events`, `duplicate_events`, `pending_terminal_events`, `drops_total`, `drops` (by reason)
 - `version` payload: `version`, `protocol`, `build`
 
 ### Control Protocol Error Model
@@ -470,6 +486,8 @@ Packet pipeline behavior is validated using Catch2 unit tests.
 - packet event propagation through `MessagingBus`
 - packet metric accumulation
 - invalid payload handling
+- lifecycle identity propagation through `PacketRx`, `PacketProcessed`, `PacketDropped`, and `PacketStats`
+- lifecycle-violation detection via `duplicate_events`
 - pipeline stability across multiple packets
 
 ## Design Notes
