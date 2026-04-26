@@ -2,10 +2,16 @@
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 
+#include <utility>
+
 namespace edgenetswitch
 {
+    PacketProcessor::PacketProcessor(MessagingBus &bus)
+        : PacketProcessor(bus, failure::FailureInjector{failure::FailureConfig{}})
+    {
+    }
 
-    PacketProcessor::PacketProcessor(MessagingBus &bus) : bus_(bus)
+    PacketProcessor::PacketProcessor(MessagingBus &bus, failure::FailureInjector injector) : bus_(bus), injector_(std::move(injector))
     {
         bus_.subscribe(MessageType::PacketRx, [this](const Message &msg)
                        {
@@ -13,6 +19,13 @@ namespace edgenetswitch
 
                            if (!packet)
                                return;
+                           const auto now_ms = nowMs();
+                           auto failure = injector_.inject(*packet, now_ms);
+
+                           if(failure.is_terminal){
+                               handleInjectedFailure(*packet, failure, now_ms);
+                               return;
+                           }
 
                            bool shouldDrop = false;
                            {
@@ -29,7 +42,7 @@ namespace edgenetswitch
                            if(shouldDrop){
                                Message dropMsg{};
                                dropMsg.type = MessageType::PacketDropped;
-                               dropMsg.timestamp_ms = nowMs();
+                               dropMsg.timestamp_ms = now_ms;
                                dropMsg.payload = PacketDropped{
                                    .reason = PacketDropReason::QueueOverflow,
                                    .timestamp_ms = dropMsg.timestamp_ms,
@@ -123,4 +136,40 @@ namespace edgenetswitch
 
         bus_.publish(processed);
     }
+
+    void PacketProcessor::handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure, std::uint64_t now_ms)
+    {
+        PacketDropReason reason;
+
+        switch (failure.type)
+        {
+        case failure::FailureType::MalformedPacket:
+            reason = PacketDropReason::ParseError;
+            break;
+        case failure::FailureType::ValidationError:
+            reason = PacketDropReason::ValidationError;
+            break;
+        case failure::FailureType::SimulatedLoss:
+            reason = PacketDropReason::SimulatedLoss;
+            break;
+        case failure::FailureType::ProcessingRejection:
+            reason = PacketDropReason::ProcessingError;
+            break;
+        default:
+            reason = PacketDropReason::InternalError;
+            break;
+        }
+
+        Message dropMsg{};
+        dropMsg.type = MessageType::PacketDropped;
+        dropMsg.timestamp_ms = now_ms;
+        dropMsg.payload = PacketDropped{
+            .reason = reason,
+            .timestamp_ms = dropMsg.timestamp_ms,
+            .packet_id = pkt.id,
+            .lifecycle_id = pkt.lifecycle_id};
+
+        bus_.publish(std::move(dropMsg));
+    }
+
 } // namespace edgenetswitch
