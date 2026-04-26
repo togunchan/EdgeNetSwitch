@@ -3,6 +3,8 @@
 #include <atomic>
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
+#include <mutex>
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 
@@ -39,7 +41,7 @@ namespace edgenetswitch
         void incrementParseError();
         void incrementValidationError();
         void updateRates(std::uint64_t now_ms) const;
-        void onTerminal();
+        void onTerminal(uint64_t lifecycle_id);
 
     private:
         std::atomic<std::uint64_t> rx_packets_{0};
@@ -49,6 +51,8 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> processed_packets_{0};
         std::atomic<std::uint64_t> terminal_events_{0};
         std::atomic<std::uint64_t> duplicate_events_{0};
+        std::unordered_set<uint64_t> completed_lifecycles_;
+        std::mutex lifecycle_mutex_;
     };
 
 } // namespace edgenetswitch

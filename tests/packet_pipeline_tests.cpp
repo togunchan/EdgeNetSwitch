@@ -63,6 +63,7 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
                   { processedCount.fetch_add(1, std::memory_order_relaxed); });
 
     Packet packet{};
+    packet.lifecycle_id = 1;
     packet.id = 42;
     packet.timestamp_ms = 1000;
     packet.payload = std::string(128, 'x');
@@ -97,16 +98,19 @@ TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[Packe
                   { processedCount.fetch_add(1, std::memory_order_relaxed); });
 
     Packet first{};
+    first.lifecycle_id = 1;
     first.id = 1;
     first.timestamp_ms = 1000;
     first.payload = std::string(64, 'x');
 
     Packet second{};
+    second.lifecycle_id = 2;
     second.id = 2;
     second.timestamp_ms = 1100;
     second.payload = std::string(96, 'x');
 
     Packet third{};
+    third.lifecycle_id = 3;
     third.id = 3;
     third.timestamp_ms = 1200;
     third.payload = std::string(128, 'x');
@@ -184,6 +188,7 @@ TEST_CASE("Packet lifecycle reaches terminal state under normal processing", "[P
     for (std::uint64_t i = 0; i < packet_count; ++i)
     {
         Packet packet{};
+        packet.lifecycle_id = i + 1;
         packet.id = 100 + i;
         packet.timestamp_ms = now_ms + i;
         packet.payload = std::string(64 + static_cast<std::size_t>(i), 'n');
@@ -227,6 +232,7 @@ TEST_CASE("Repeated packet ids are not duplicate lifecycle events", "[PacketPipe
     for (std::uint64_t i = 0; i < 2; ++i)
     {
         Packet packet{};
+        packet.lifecycle_id = i + 1;
         packet.id = 700;
         packet.timestamp_ms = now_ms + i;
         packet.payload = std::string(64, 'r');
@@ -267,6 +273,7 @@ TEST_CASE("Packet lifecycle accounting remains consistent for validation drops",
     for (std::uint64_t i = 0; i < packet_count; ++i)
     {
         Packet oversized{};
+        oversized.lifecycle_id = i + 1;
         oversized.id = 500 + i;
         oversized.timestamp_ms = now_ms + i;
         oversized.payload = std::string(600, 'x');
@@ -325,6 +332,7 @@ TEST_CASE("Packet lifecycle accounting remains consistent under real overload", 
                                    for (std::uint64_t i = 0; i < packets_per_producer; ++i)
                                    {
                                        Packet packet{};
+                                       packet.lifecycle_id = (producer * packets_per_producer) + i + 1;
                                        packet.id = 9000 + (producer * packets_per_producer) + i;
                                        packet.timestamp_ms = now_ms + packet.id;
                                        packet.payload = payload;

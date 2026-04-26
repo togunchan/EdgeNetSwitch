@@ -103,8 +103,10 @@ namespace edgenetswitch
 
             std::string data(buffer, static_cast<size_t>(len));
             Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
-
+            
+            auto lifecycle_id = lifecycle_gen_.next();
             auto packet = parsePacket(data);
+            packet.lifecycle_id = lifecycle_id;
 
             if (!packet.valid)
             {
@@ -116,7 +118,8 @@ namespace edgenetswitch
                 dropMsg.payload = PacketDropped{
                     .reason = PacketDropReason::ParseError,
                     .timestamp_ms = ts,
-                    .packet_id = 0};
+                    .packet_id = 0,
+                    .lifecycle_id = lifecycle_id};
 
                 bus_.publish(std::move(dropMsg));
                 Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
@@ -145,7 +148,8 @@ namespace edgenetswitch
                 dropMsg.payload = PacketDropped{
                     .reason = PacketDropReason::ValidationError,
                     .timestamp_ms = ts,
-                    .packet_id = packet.id};
+                    .packet_id = packet.id,
+                    .lifecycle_id = lifecycle_id};
 
                 bus_.publish(std::move(dropMsg));
                 Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" + toString(result.reason));

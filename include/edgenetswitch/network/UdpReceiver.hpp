@@ -1,8 +1,10 @@
 #pragma once
 
-#include "edgenetswitch/messaging/MessagingBus.hpp"
 #include <atomic>
 #include <thread>
+
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
 
 namespace edgenetswitch
 {
@@ -23,5 +25,6 @@ namespace edgenetswitch
         int sockfd_;
         std::atomic_bool running_{false};
         std::thread worker_;
+        LifecycleIdGenerator lifecycle_gen_;
     };
 } // namespace edgenetswitch

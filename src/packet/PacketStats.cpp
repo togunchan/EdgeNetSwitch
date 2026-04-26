@@ -5,8 +5,15 @@
 
 namespace edgenetswitch
 {
-    void PacketStats::onTerminal()
+    void PacketStats::onTerminal(uint64_t lifecycle_id)
     {
+        std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+        if (!completed_lifecycles_.insert(lifecycle_id).second)
+        {
+            duplicate_events_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+
         terminal_events_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -17,15 +24,15 @@ namespace edgenetswitch
                         const Packet &p = std::get<Packet>(msg.payload);
 
                         rx_packets_.fetch_add(1, std::memory_order_relaxed);
-                        rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed); 
+                        rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed);
                         processed_packets_.fetch_add(1, std::memory_order_relaxed); 
-                        onTerminal(); });
+                        onTerminal(p.lifecycle_id); });
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {
                         const auto drop = std::get<PacketDropped>(msg.payload);
                         drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed);
-                        onTerminal(); });
+                        onTerminal(drop.lifecycle_id); });
 
         bus.subscribe(MessageType::PacketRx, [this](const Message &msg)
                       { 

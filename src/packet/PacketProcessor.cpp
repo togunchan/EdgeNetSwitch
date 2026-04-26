@@ -33,7 +33,8 @@ namespace edgenetswitch
                                dropMsg.payload = PacketDropped{
                                    .reason = PacketDropReason::QueueOverflow,
                                    .timestamp_ms = dropMsg.timestamp_ms,
-                                   .packet_id = packet->id};
+                                   .packet_id = packet->id,
+                                   .lifecycle_id = packet->lifecycle_id};
 
                                bus_.publish(std::move(dropMsg));
                            }
@@ -87,7 +88,8 @@ namespace edgenetswitch
             dropMsg.payload = PacketDropped{
                 .reason = PacketDropReason::ValidationError,
                 .timestamp_ms = processedPacket.timestamp_ms,
-                .packet_id = processedPacket.id};
+                .packet_id = processedPacket.id,
+                .lifecycle_id = processedPacket.lifecycle_id};
 
             bus_.publish(std::move(dropMsg));
             return;
@@ -101,7 +103,8 @@ namespace edgenetswitch
             dropMsg.payload = PacketDropped{
                 .reason = PacketDropReason::ValidationError,
                 .timestamp_ms = dropMsg.timestamp_ms,
-                .packet_id = processedPacket.id};
+                .packet_id = processedPacket.id,
+                .lifecycle_id = processedPacket.lifecycle_id};
 
             bus_.publish(std::move(dropMsg));
             return;

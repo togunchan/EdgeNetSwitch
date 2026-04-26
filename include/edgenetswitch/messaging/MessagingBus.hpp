@@ -39,6 +39,7 @@ namespace edgenetswitch
         PacketDropReason reason;
         std::uint64_t timestamp_ms;
         std::uint64_t packet_id{0};
+        std::uint64_t lifecycle_id{0};
     };
 
     struct TelemetryData
@@ -59,6 +60,7 @@ namespace edgenetswitch
     struct Packet
     {
         std::uint64_t id{0};
+        std::uint64_t lifecycle_id{0};
         std::string payload;
         std::uint64_t timestamp_ms{0};
         std::uint32_t wire_size{0}; // raw packet size coming from UDP
