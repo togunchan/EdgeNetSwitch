@@ -5,567 +5,145 @@
 ![Version](https://img.shields.io/badge/version-v1.8.7-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Deterministic C++20 runtime simulating an embedded Linux network device.
+> Debugging embedded network systems after hardware integration is too late.  
+> EdgeNetSwitch is a deterministic C++20 runtime for validating and reasoning about networked systems before hardware exists.
 
-Designed to model real-world concurrency, networking, and lifecycle behavior before hardware, NICs, or BSP layers exist.
+## Problem
 
-Control protocol v1.2 (JSON response format stabilized, legacy framing deprecated).
+Embedded networking systems are often debugged too late: after hardware is available, after kernel integration has started, and after concurrency bugs are already mixed with driver, BSP, and timing behavior.
 
-## What this project demonstrates
+That makes packet loss, shutdown races, observability gaps, and lifecycle accounting errors difficult to reproduce. The core runtime needs to be designed and validated before it is buried under platform-specific complexity.
 
-- Deterministic multi-threaded C++ runtime architecture
-- Explicit concurrency boundaries: synchronous event bus, asynchronous processing paths
-- Real UDP ingress inside a controlled event-driven runtime
-- Bounded queues, overload signaling, and drop accounting
-- Lifecycle-correct observability from `PacketRx` to terminal outcome
-- Explicit identity separation: `lifecycle_id` as runtime identity, `packet.id` as payload identity
-- Production-style shutdown sequencing and thread ownership
+## Solution
 
-This project simulates how a real embedded Linux network device behaves before hardware or kernel integration exists.
+EdgeNetSwitch isolates the runtime as a deterministic execution environment with explicit control over concurrency, timing, and system behavior. It models packet ingress, processing, telemetry, health, control-plane inspection, overload behavior, and shutdown sequencing inside a controlled C++20 daemon.
 
----
+The system enables early validation of:
+- event flow through the runtime
+- concurrency boundaries and ownership
+- overload and backpressure behavior
+- lifecycle correctness guarantees
+- observability without timing side effects
 
-## Why this exists
+## Key Engineering Highlights
 
-Most embedded/networking systems are developed directly on hardware,
-making debugging, observability, and iteration difficult.
+- Deterministic runtime ownership: execution is driven by a tick loop, not external I/O.
+- Determinism over throughput: the system prefers explicit loss to hidden latency or blocking.
+- Explicit concurrency model: `MessagingBus` dispatch is synchronous and thread-affine; asynchronous behavior exists only at bounded queue handoffs.
+- Lifecycle-based correctness: `lifecycle_id` is runtime identity, while `packet.id` remains payload identity.
+- Auditable packet invariants: `terminal_events == processed_packets + total_drops` and `ingress_packets == terminal_events + pending_terminal_events`.
+- Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
+- Observability-first design: telemetry export runs off the runtime path, and the read-only control plane returns structured JSON snapshots.
+- Production-grade lifecycle management: RAII cleanup, coordinated shutdown, and thread ownership discipline.
 
-EdgeNetSwitch isolates the runtime layer first:
-- deterministic execution
-- observable behavior
-- testable concurrency
+## Architecture Overview
 
-This enables designing and validating system behavior before hardware, kernel modules, or Yocto integration are introduced.
+```mermaid
+flowchart LR
+    subgraph Data["Data Plane"]
+        Traffic["Network Traffic"] --> Ingress["Packet Ingress"]
+        Ingress --> Admission["Bounded Admission"]
+    end
 
-## Quick Start
-Minimal local run flow:
+    subgraph Core["Deterministic Runtime Core"]
+        Tick["Deterministic Tick Loop (Execution Owner)"] --> Bus["MessagingBus"]
+        Admission --> Bus
+        Bus --> Outcomes["Packet Outcomes"]
+        Bus --> State["Runtime State"]
+    end
+
+    subgraph Control["Control Plane"]
+        Operator["CLI / UNIX Socket"] --> Queries["Read-Only Queries"]
+        Queries -. snapshots .-> State
+    end
+
+    subgraph Async["Explicit Async I/O Boundaries"]
+        Admission --> WorkQueue["Packet Work Queue"]
+        State --> ExportQueue["Telemetry Export Queue"]
+        ExportQueue --> Exporters["File / Memory / Stdout"]
+    end
+```
+
+The main tradeoff is intentional: the runtime prioritizes deterministic execution and explicit loss over hidden blocking, unbounded buffering, or timing side effects from observability paths.
+
+The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load.
+
+## Tech Stack
+
+- C++20, CMake
+- Catch2 for unit coverage
+- nlohmann/json for configuration and control responses
+- POSIX UDP sockets and UNIX domain sockets
+- `std::thread`, `std::mutex`, `std::condition_variable`, atomics
+- macOS and Linux targets
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the architectural milestone history and release-level engineering notes.
+
+## Intended Audience
+
+This project is designed for engineers working on:
+- embedded systems
+- network runtimes
+- event-driven architectures
+- deterministic systems and observability
+
+## Getting Started
+
+### Clone
 
 ```bash
 git clone https://github.com/togunchan/EdgeNetSwitch.git
 cd EdgeNetSwitch
 git submodule update --init --recursive
+```
 
+### Build
+
+```bash
 cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build
+```
 
+### Run
+
+```bash
 ./build/EdgeNetSwitchDaemon
 ```
 
-The daemon runs a deterministic, tick-driven runtime loop.
-
-External I/O (telemetry export, control commands) is isolated from the runtime tick loop.
-
-The control socket is exposed at:
-`/tmp/edgenetswitch.sock`
-
-Example query:
+### Verify
 
 ```bash
-echo "1.2|status" | nc -U /tmp/edgenetswitch.sock
+ctest --test-dir build --output-on-failure
 ```
 
-### UDP Example (v1.8)
-(daemon must be running)
-```bash
-echo "id=42;payload=hello" | nc -u -w1 127.0.0.1 9000
-```
+## Quick Demo (No Hardware Required)
 
-## Scope
-
-### v1.0 – Runtime Core (stabilized)
-- Deterministic tick-driven daemon
-- Thread-safe Logger (JSON-configured)
-- In-process MessagingBus (pub/sub)
-- JSON ConfigLoader
-- Telemetry (uptime, tick counter)
-- HealthMonitor with heartbeat-based transitions
-- SystemStart / SystemShutdown lifecycle events
-- Full Catch2 unit test coverage
-
-### v1.1 – Control Plane & Observability
-- UNIX domain socket control plane at /tmp/edgenetswitch.sock
-- Dedicated control thread (non-blocking to runtime)
-- Read-only runtime inspection
-- Initial CLI command: status
-- Live telemetry snapshot retrieval
-- Clean separation between runtime, control plane, and CLI
-- Graceful shutdown coordination between threads
-
-### v1.2 – Control Protocol v1.2
-- Versioned control request/response protocol (v1.2)
-- Initial framed responses (OK / ERR / END) (deprecated in later versions)
-- Centralized command dispatch layer
-- CLI commands: status, health, metrics, version
-- Structured key=value payloads for control responses
-
-### v1.3 – Control Plane Introspection & Dispatch Refinement
-- Metadata-driven dispatch table via `CommandDescriptor`; new commands are registered only through the table.
-- Command introspection via `help`, with detailed `help <command>` and `help:<command>` output derived entirely from dispatch metadata.
-- Unified handler signatures: `(const ControlContext&, const std::string& arg)`.
-- Cleaner CLI/daemon separation: CLI is presentation-only while all logic lives in the daemon.
-- Header hygiene improved using forward declarations.
-- No IPC protocol changes; control protocol remains v1.2.
-- Extensibility improvements without runtime impact; existing command behavior and output are unchanged.
-
-### v1.4 – Control Protocol Stabilization
-- Explicit protocol version validation (format and support).
-- Backward compatibility enforcement for v1.2; unsupported versions are rejected.
-- Well-defined error taxonomy with stable error_code values.
-- Stable error encoding on the wire (ERR / error_code / message / END).
-- No runtime mutation introduced; control plane remains read-only.
-
-### v1.5 – Persistent Telemetry
-- `FileTelemetryExporter` added and wired to write telemetry samples to `telemetry.log`.
-- File output uses append mode (`std::ios::out | std::ios::app`) so existing log contents are preserved across restarts.
-- `FileTelemetryExporter` uses an internal `std::mutex` to guard both `exportSample()` and teardown paths.
-- RAII teardown is deterministic: destructor takes the same lock, then `flush()`es and `close()`s the file stream when open.
-- Integrated into `TelemetryExportManager` during daemon startup as a third exporter beside stdout and in-memory exporters.
-- No changes to `SnapshotPublisher` or memory ordering semantics in this version increment.
-- No control protocol changes.
-- The export path was later moved off the runtime path in v1.6.
-
-### v1.6 – Asynchronous Telemetry Pipeline
-- Telemetry export moved off the runtime path: runtime telemetry callbacks enqueue snapshots and continue the deterministic tick loop.
-- Non-blocking enqueue model via `TelemetryExportManager::enqueue()` isolates runtime timing from exporter latency.
-- Bounded queue introduced in `TelemetryExportManager` (default capacity `512`) to cap memory growth.
-- Backpressure uses a drop-oldest policy when the queue is full; newest samples are retained.
-- Dedicated export worker thread (`start()` / `stop()`) drains the queue and dispatches to all exporters.
-- Worker wakeup and shutdown are coordinated with `std::condition_variable` to avoid busy-spinning.
-- Queue backpressure metrics are attached to exported samples: `queue_size` and `dropped_samples` (`telemetry_queue_size` / `telemetry_dropped_samples` in `RuntimeMetrics`).
-
-### v1.7 – Virtual Packet Pipeline
-- Introduces a virtual data plane used to exercise packet processing behavior before real NIC or kernel integration.
-- `PacketGenerator` emits synthetic packets and publishes `MessageType::PacketRx`.
-- `PacketProcessor` subscribes to `MessageType::PacketRx`, processes packet payloads, and publishes `MessageType::PacketProcessed`.
-- `PacketStats` subscribes to `MessageType::PacketProcessed` and accumulates processed packet counters.
-- Event pipeline:
-
-```text
-PacketGenerator
-    ↓
-MessageType::PacketRx
-    ↓
-PacketProcessor
-    ↓
-MessageType::PacketProcessed
-    ↓
-PacketStats
-```
-
-- Packet metrics are exposed through the control plane:
-  `echo "1.2|packet-stats" | nc -U /tmp/edgenetswitch.sock`
-
-### v1.8 – Real UDP Networking
-- Introduces real UDP-based packet ingestion via `recvfrom()`.
-- Configurable UDP ingress port (default `9000`).
-- `PacketParser` validates and extracts packet fields from raw UDP data.
-- UDP-ingested `PacketRx` events are timestamped at ingress via `nowMs()`.
-- UDP ingress publishes validated packets into the same `MessagingBus` path as the synthetic generator.
-- Echo response implemented via `sendto()`.
-- Event pipeline:
-
-```text
-UDP Socket
-    ↓
-PacketParser (validate)
-    ↓
-PacketRx (timestamp=nowMs)
-    ↓
-MessagingBus
-```
-- UDP ingress integrates with the existing packet pipeline introduced in v1.7.
-
-### Packet Processing Pipeline (v1.8.1)
-- Structured packet parsing (`PacketParser`)
-- Separation of parse errors vs validation errors
-- Event-driven drop handling via `MessagingBus` (`PacketDropped`)
-- Packet processing stage (`PacketProcessor`)
-- Payload vs wire size separation (network vs processing layer)
-- Real-time packet metrics (`PacketStats`)
-- Control-plane visibility for packet pipeline metrics via `packet-stats`
-- Improves observability and separation of concerns in the packet pipeline.
-
-### Packet Rate Telemetry (v1.8.2)
-- Naive per-snapshot rates are unstable under bursty ingress and scheduler phase offset; packet arrival is not synchronized with the tick boundary.
-- `PacketStats` now computes packet/byte rates with a time gate (`>=1000ms`) to avoid sub-window jitter amplification.
-- EWMA smoothing (`alpha=0.2`) is applied for control-plane interpretability; it filters variance but does not redefine measurement correctness.
-- Dual observability is exposed: raw interval rates (`rx_packets_per_sec_raw`, `rx_bytes_per_sec_raw`) and smoothed trend rates (`rx_packets_per_sec`, `rx_bytes_per_sec`).
-- Deterministic rate validation is supported via `snapshotAt(now_ms)` for explicit time control in tests (no wall-clock dependency).
-Note: This example reflects legacy text-mode output. JSON-based responses were introduced in v1.8.3.
-- CLI example:
-
-```text
-OK
-rx_packets=321
-rx_bytes=2353
-rx_packets_per_sec=12
-rx_bytes_per_sec=88
-rx_packets_per_sec_raw=9
-rx_bytes_per_sec_raw=76
-END
-```
-- Raw rates reflect the last measurement window and may fluctuate due to scheduling jitter and burst alignment.
-- Smoothed rates (EWMA) provide a stable control-plane signal suitable for trend interpretation.
-- The divergence between raw and smoothed rates indicates transition dynamics in traffic behavior.
-
-### Control Plane JSON & CLI Semantics (v1.8.3)
-
-- Control-plane response format is now standardized as JSON:
-  - `status`: "ok" or "error"
-  - `data`: present on success
-  - `error`: contains `code` and `message` on failure
-- All control handlers now return consistent JSON responses via shared helpers.
-- Argument validation is enforced across commands (`:json` is the only supported modifier).
-- CLI is now JSON-aware:
-  - Automatically parses JSON responses
-  - Falls back to text output for backward compatibility
-- Proper CLI exit codes introduced:
-  - `0` → success
-  - `1` → error
-- Legacy framed protocol parsing (`OK / ERR / END`) removed from CLI logic.
-
-Example:
+Send a UDP packet to the runtime:
 
 ```bash
-./build/EdgeNetSwitchDaemon status:json
+echo "test-packet" | nc -u 127.0.0.1 9000
 ```
 
-```json
-{
-  "status": "ok",
-  "data": {
-    "state": "RUNNING",
-    "uptime_ms": 1234
-  }
-}
-```
-
-Error example:
+Inspect system state:
 
 ```bash
-./build/EdgeNetSwitchDaemon invalid
+echo "packet-stats:json" | nc -U /tmp/edgenetswitch.sock
 ```
 
-```json
-{
-  "status": "error",
-  "error": {
-    "code": "unknown_command",
-    "message": "unknown command: invalid"
-  }
-}
-```
-
-### v1.8.4 – Bounded Async Packet Processing
-- `PacketProcessor` no longer processes packets synchronously in the `PacketRx` subscriber path.
-- Packet ingress is now admitted into an internal bounded queue (`std::deque<Packet>`).
-- A dedicated worker thread drains the queue asynchronously via `processLoop()`.
-- Admission is now capacity-bound (`MAX_QUEUE_SIZE = 1024`).
-- If the queue is full, the system emits `PacketDropped` with reason `QueueOverflow`.
-- Packet pipeline pressure is now observable through:
-  - `ingress_packets`
-  - `processed_packets`
-  - `processing_gap`
-  - structured `drops_by_reason`
-- `packet-stats` text and JSON outputs were extended to expose backlog and overload visibility.
-- This version introduces the first explicit admission boundary in the packet pipeline.
-- A minimal worker-loop implementation is used for correctness first; wakeup optimization is deferred.
-
-## v1.8.5 — Concurrency Stabilization & Lifecycle Consistency
-
-### Highlights
-- `PacketProcessor` worker execution is condition-variable driven; busy-wait behavior is removed.
-- Shutdown sequencing is hardened to avoid timing-dependent teardown races across runtime and worker boundaries.
-- Ensures packet lifecycle invariants remain consistent under concurrency.
-- Eliminates timing-dependent inconsistencies in ingress-to-terminal accounting.
-- `MessagingBus` threading semantics are explicitly documented as synchronous, blocking, and thread-affine dispatch.
-- Threading behavior is documented in [docs/threading_model.md](docs/threading_model.md).
-
-### v1.8.7 — Lifecycle-Based Packet Accounting
-- UDP ingress now assigns a `lifecycle_id` that represents one observed packet lifecycle from ingress admission through exactly one terminal outcome.
-- `packet.id` is treated as payload identity, not runtime lifecycle identity; using it for duplicate terminal detection conflated sender-controlled data with runtime accounting.
-- `PacketRx` carries the ingress `lifecycle_id`; `PacketProcessor` propagates the same value into `PacketProcessed` or `PacketDropped`; all `PacketDropped` events now carry `lifecycle_id`, including parse, validation, queue-overflow, and processor-stage drops.
-- `duplicate_events` now reports lifecycle violations: more than one terminal event for the same `lifecycle_id`. It no longer reports `packet.id` reuse.
-- `PacketStats` enforces lifecycle correctness by counting terminal events by `lifecycle_id`, rejecting duplicate terminal accounting, and maintaining strict ingress-to-terminal invariants.
-- Terminal accounting is strictly enforced: `terminal_events` is the sum of successful processing and all drop outcomes, while `pending_terminal_events` represents admitted lifecycles that have not yet produced a terminal event.
-
-## Runtime & control-plane architecture
-The tick-driven runtime owns execution. Subsystems communicate through the in-process MessagingBus. An out-of-band control thread exposes read-only inspection over a UNIX socket using control protocol v1.2, dispatches commands through metadata, and returns JSON responses without pausing the runtime. Telemetry export is isolated behind a bounded asynchronous queue, so runtime ticks do not block on exporter I/O. Packet processing is also bounded asynchronous (`MAX_QUEUE_SIZE = 1024`), with explicit `QueueOverflow` signaling and observable ingress/processed gap under pressure. Packet lifecycle identity is assigned at UDP ingress as `lifecycle_id` and propagates through `PacketRx` → `PacketProcessed` / `PacketDropped` → `PacketStats`, keeping runtime identity distinct from payload identity.
-- MessagingBus dispatch is synchronous and blocking; callbacks execute on the publisher thread (thread-affinity).
-
-### Packet Flow (v1.8.7)
-
-UDP Receiver → Parser → Validator → PacketRx (`lifecycle_id`) → Processor → PacketProcessed / PacketDropped → PacketStats
-
-```
-+-------------------------------------------+
-| Network Ingress (v1.8)                    |
-|   UDP Socket (recvfrom)                   |
-|        -> PacketParser (validate)         |
-|        -> PacketRx (timestamp=nowMs,      |
-|                     lifecycle_id=...)     |
-+--------------------+----------------------+
-                     | (event injection)
-                     v
-+------------------------------------------------------------------------------------+
-| Runtime Plane (deterministic tick loop)                                            |
-|                                                                                    |
-|  tick -> Telemetry ----------+                                                     |
-|       -> HealthMonitor       |                                                     |
-|       -> PacketGenerator ----+                                                     |
-|                              |                                                     |
-|  UDP Ingress (recvfrom) -----+--> PacketRx(lifecycle_id) ---->                     |
-|                                                v                                   |
-|                            +-----------------------+                               |
-|                            |      MessagingBus     |  internal event backbone      |
-|                            +-----+-----------+-----+                               |
-|                                  |           |                                     |
-|                                  |           +--> PacketProcessor                  |
-|                                  |                 |                               |
-|                                  |                 +--PacketProcessed(lifecycle_id)|
-|                                  |                 |                 -->PacketStats|
-|                                  |                 +--PacketDropped(lifecycle_id)  |
-|                                  |                                   -->PacketStats|
-|                                  |                                                 |
-|                                  +--> Telemetry sample -> RuntimeMetrics           |
-|                                                                                    |
-|  Telemetry + HealthMonitor + PacketStats                                           |
-|                               v                                                    |
-|                        Runtime snapshot                                            |
-|                               v                                                    |
-|                        SnapshotPublisher                                           |
-+------------------------------------------------------------------------------------+
-                 |                                            |
-                 v                                            v
-+-------------------------------------------+   +------------------------------------+
-| Export Path (off tick thread)             |   | Control Plane (out-of-band)        |
-| TelemetryExportManager (bounded queue)    |   | Control thread                     |
-|   -> export worker thread                 |   |   -> UNIX socket                   |
-|   -> exporters (stdout / memory / file)   |   |      /tmp/edgenetswitch.sock       |
-+-------------------------------------------+   |   -> CLI / edgenetctl / nc         |
-                                                +------------------------------------+
-```
-
-## Packet Lifecycle Model
-`lifecycle_id` is the runtime identity of one packet lifecycle. It is assigned once at UDP ingress, before asynchronous admission or early rejection, and remains attached to every event for that observed lifecycle. The lifecycle begins when UDP ingress receives a datagram and allocates the identifier; it ends when exactly one terminal event is published: `PacketProcessed` for success or `PacketDropped` for parse errors, validation failures, queue overflow, or processor-stage rejection.
-
-`packet.id` is not used for lifecycle correctness. It is payload identity supplied by traffic, not an ownership token minted by the runtime. A sender can reuse it, omit it, replay it, or preserve it across retries; those are payload semantics, not evidence of duplicate terminal events. Conflating `packet.id` with lifecycle identity makes observability dependent on external input quality.
-
-`duplicate_events` reports lifecycle violations only. `PacketStats` increments it when more than one terminal event appears for the same `lifecycle_id`; reuse of `packet.id` does not affect the counter. This keeps duplicate detection aligned with the runtime contract: one ingress lifecycle produces exactly one terminal outcome.
-
-## Metrics Invariants
-```text
-terminal_events == processed_packets + total_drops
-ingress_packets == terminal_events + pending_terminal_events
-```
-
-These invariants make packet accounting auditable under concurrency. The first invariant guarantees that every terminal event is classified as either successful processing or a drop, with no unclassified terminal outcome. The second invariant guarantees that ingress accounting cannot silently lose packets: every ingress lifecycle is either terminal or explicitly pending. Together they make `PacketStats` a correctness boundary rather than a best-effort counter aggregate.
-
-## Daemon loop & message flow
-- Startup: install signal handlers; load JSON config; initialize Logger, MessagingBus, Telemetry, HealthMonitor, `TelemetryExportManager`; open control socket; start control thread and export worker thread.
-- Tick order: `telemetry.onTick()` publishes runtime metrics, then `health.onTick()` evaluates heartbeats; loop sleeps for the configured tick period.
-- Telemetry export path: `MessageType::Telemetry` callbacks build `RuntimeMetrics` and call `exportManager.enqueue()` (non-blocking); when full, queue backpressure drops the oldest sample.
-- Packet lifecycle path: UDP ingress assigns `lifecycle_id`, `PacketRx` carries it into `PacketProcessor`, and the terminal `PacketProcessed` or `PacketDropped` event carries it into `PacketStats`.
-- Export worker: waits on `std::condition_variable`, drains queued samples, and invokes registered exporters off the runtime path.
-- Heartbeat: Telemetry publishes uptime/tick counters; HealthMonitor consumes heartbeats and emits state transitions only on change.
-- Shutdown: SIGINT/SIGTERM sets the stop flag, exits the loop, joins the control thread, stops/joins the export worker thread, publishes `SystemShutdown`, and closes the socket.
-- Control lifecycle: control thread blocks on accept, parses `version|command` requests, dispatches through the metadata-driven table, returns JSON responses (`status`: `ok` or `error`, `data` on success, `error` with `code` and `message` on failure), and terminates when the stop flag flips.
-
-## Daemon loop & message flow (simplified)
-```cpp
-std::atomic_bool stopFlag{false};
-
-int main(int argc, char** argv) {
-    if (argc > 1) {
-        executeControlCommand(argv[1]);
-        return 0;
-    }
-
-    installSignalHandlers();
-    auto cfg = ConfigLoader::loadFromFile("config/edgenetswitch.json");
-    Logger::init(Logger::parseLevel(cfg.log.level), cfg.log.file);
-
-    MessagingBus bus;
-    RuntimeState runtimeState = RuntimeState::Booting;
-    Telemetry telemetry(bus, cfg);
-    HealthMonitor health(bus, 500);
-
-    int control_fd = createControlSocket();
-    std::thread control(controlSocketThreadFunc,
-                        control_fd,
-                        std::cref(telemetry),
-                        std::cref(runtimeState),
-                        std::cref(health),
-                        std::cref(stopFlag));
-
-    bus.publish({MessageType::SystemStart, nowMs()});
-    while (!stopFlag.load(std::memory_order_relaxed)) {
-        telemetry.onTick();   // produce metrics
-        health.onTick();      // evaluate system health
-        // packet pipeline runs via MessagingBus events
-        std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
-    }
-
-    control.join();
-    destroyControlSocket(control_fd);
-    bus.publish({MessageType::SystemShutdown, nowMs()});
-    Logger::shutdown();
-}
-```
-
-## CLI usage (v1.8)
-- Run the daemon: `./build/EdgeNetSwitchDaemon`
-- Query status: `./build/EdgeNetSwitchDaemon status`
-- Query status as JSON: `./build/EdgeNetSwitchDaemon status:json`
-- Query health: `./build/EdgeNetSwitchDaemon health`
-- Query health as JSON: `./build/EdgeNetSwitchDaemon health:json`
-- Query metrics: `./build/EdgeNetSwitchDaemon metrics`
-- Query metrics as JSON: `./build/EdgeNetSwitchDaemon metrics:json`
-- Query packet statistics: `./build/EdgeNetSwitchDaemon packet-stats`
-- Query version: `./build/EdgeNetSwitchDaemon version`
-- Help summary: `./build/EdgeNetSwitchDaemon help`
-- Help for a command (detailed introspection): `./build/EdgeNetSwitchDaemon help <command>`
-- Help for a command (alternate form): `./build/EdgeNetSwitchDaemon help:<command>`
-- Help output is generated from dispatch metadata in the daemon.
-- Request format: `1.2|<command[:json]>`
-- Response format (JSON): `status` is `ok` or `error`; `data` is present on success; `error` contains `code` and `message` on failure
-- Legacy `OK` / `ERR` / `END` framing is deprecated; JSON is the primary response format. Legacy framing may still exist internally for compatibility.
-- `status` payload: `state`, `uptime_ms`, `tick_count`
-- `health` payload: `alive`, `silence_ms`, `last_heartbeat_ms`
-- `metrics` payload: `uptime_ms`, `tick_count`
-- `packet-stats` payload: `rx_packets`, `rx_bytes`, `ingress_packets`, `processed_packets`, `processing_gap`, `terminal_events`, `duplicate_events`, `pending_terminal_events`, `drops_total`, `drops` (by reason)
-- `version` payload: `version`, `protocol`, `build`
-
-### Control Protocol Error Model
-Errors are part of the protocol contract, not implementation details. Each error carries a stable `code` and a human-readable `message`.
-
-- `invalid_request`: missing version or command, or malformed request line.
-- `invalid_version_format`: protocol version is not in `digit.digit` form (e.g., `1.2`).
-- `unsupported_version`: version is well-formed but not supported (only `1.2`).
-- `unknown_command`: command is not present in the dispatch table.
-- `internal_error`: fallback when a response lacks a specific code.
-
-### CLI / IPC examples
-```text
-# Valid request (JSON response)
-> 1.2|status:json
-< {
-<   "status": "ok",
-<   "data": {
-<     "state": "RUNNING",
-<     "uptime_ms": 1234,
-<     "tick_count": 42
-<   }
-< }
-
-# Unsupported version (JSON response)
-> 1.3|status:json
-< {"status":"error","error":{"code":"unsupported_version","message":"unsupported protocol version: 1.3"}}
-
-# Unknown command (JSON response)
-> 1.2|frobnicate:json
-< {"status":"error","error":{"code":"unknown_command","message":"unknown command: frobnicate"}}
-```
-
-## Design principles
-- Read-only control plane; no runtime mutation.
-- Deterministic runtime loop unchanged.
-- Protocol versioning enables forward-compatible evolution without breaking v1.2 semantics.
-
-## Testability and extensibility
-- Deterministic tick loop and pure message passing make behavior reproducible and unit-testable.
-- MessagingBus decouples producers and consumers, enabling new subsystems without touching the runtime loop.
-- Control plane stays out-of-band and read-only, preserving timing while exposing observability.
-- Centralized control dispatch isolates command handling from socket I/O while keeping the runtime loop unchanged.
-- Adding a new control command requires only extending the dispatch table; no socket or CLI changes are needed.
-- Dispatch metadata is the single source of truth for command definitions and help output.
-
-### Packet Pipeline Testing
-Packet pipeline behavior is validated using Catch2 unit tests.
-
-- packet event propagation through `MessagingBus`
-- packet metric accumulation
-- invalid payload handling
-- lifecycle identity propagation through `PacketRx`, `PacketProcessed`, `PacketDropped`, and `PacketStats`
-- lifecycle-violation detection via `duplicate_events`
-- pipeline stability across multiple packets
-
-## Design Notes
-
-- [v1.8.2 — Packet Rate Telemetry with EWMA Smoothing](docs/v1.8.2-packet-telemetry.md)
-- [v1.8.4 — Bounded Asynchronous Packet Processing and Pressure Visibility](docs/v1.8.4-bounded-async-packet-processing.md)
-
-## Project Goals
-- Deterministic daemon architecture.
-- Explicit runtime/control-plane separation.
-- Observable runtime behavior through control-plane snapshots and telemetry.
-- Testable subsystems with focused unit tests.
-- Architecture experimentation before hardware exists.
-
-## Current Boundaries (Not Yet)
-
-The project intentionally does not include the following at this stage:
-
-- Production-grade network switching logic
-- Kernel driver / data-plane integration
-- Hardware BSP / Yocto deployment
-- Hard real-time guarantees
-
-These are not excluded permanently.
-
-They are deferred intentionally to preserve:
-- architectural clarity
-- deterministic behavior
-- observability-first design
-
-Each of these areas is planned to be introduced in later phases,
-after the user-space runtime model is fully validated under load.
-
-## Project Status
-EdgeNetSwitch is an experimental systems architecture project exploring
-deterministic daemon design for edge devices.
-
-The runtime core and control protocol are stable.
-
-Current development focuses on hardening the UDP-integrated packet pipeline,
-which is now driven by real network traffic, and transitioning the system
-from simulation-oriented flows toward broader real I/O integration.
-
-The system has transitioned from fully synthetic packet simulation (v1.7)
-to hybrid operation with real UDP-based packet ingress (v1.8).
-
-Current focus is on stabilizing real I/O integration while preserving
-deterministic runtime guarantees, preparing the architecture for
-stateful packet forwarding (v1.9).
-
-## Build, run, test
-```bash
-git submodule update --init --recursive
-
-cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build
-
-# Run daemon (reads config/edgenetswitch.json)
-./build/EdgeNetSwitchDaemon
-
-# Read-only control queries
-./build/EdgeNetSwitchDaemon status
-./build/EdgeNetSwitchDaemon health
-./build/EdgeNetSwitchDaemon metrics
-./build/EdgeNetSwitchDaemon version
-
-# Unit tests
-ctest --test-dir build
-```
+This demonstrates deterministic packet ingestion, lifecycle tracking, and observable system state without hardware dependencies.
 
 ## Contributing
-EdgeNetSwitch is primarily a personal systems architecture project, but contributions and technical discussion are welcome.
+
+This project is primarily a systems architecture exploration.
+
+Contributions, experiments, and technical discussions are welcome.
 
 Open an issue for:
-
-- Architecture ideas
-- Runtime experiments
-- Documentation improvements
+- architecture ideas
+- runtime experiments
+- documentation improvements
 
 ## Contact
 [![LinkedIn - Murat Toğunçhan Düzgün](https://img.shields.io/badge/LinkedIn-Murat%20To%C4%9Fun%C3%A7han%20D%C3%BCzg%C3%BCn-blue.svg)](https://www.linkedin.com/in/togunchan/)
