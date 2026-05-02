@@ -27,6 +27,12 @@ namespace edgenetswitch
                                return;
                            }
 
+                           if (failure.type == failure::FailureType::ArtificialDelay && failure.delay_ms > 0.0)
+                           {
+                               std::this_thread::sleep_for(
+                                   std::chrono::milliseconds(static_cast<int>(failure.delay_ms)));
+                           }
+
                            bool shouldDrop = false;
                            {
                                std::lock_guard<std::mutex> lock(queue_mutex_);
