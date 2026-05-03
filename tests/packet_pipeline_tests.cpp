@@ -373,3 +373,51 @@ TEST_CASE("Packet lifecycle accounting remains consistent under real overload", 
     REQUIRE(m.ingress_packets == m.terminal_events);
     REQUIRE(m.terminal_events == m.processed_packets + drops_total);
 }
+
+TEST_CASE("deterministic simulated loss every 2 packets", "[PacketPipeline][FailureInjection]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+
+    const failure::FailureConfig failure_config{
+        .type = failure::FailureType::SimulatedLoss,
+        .enabled = true,
+        .every_n_packets = 2};
+    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+
+    constexpr std::uint64_t now_ms = 5000;
+    constexpr std::uint64_t packet_count = 4;
+
+    Message msg{};
+    msg.type = MessageType::PacketRx;
+
+    for (std::uint64_t i = 0; i < packet_count; ++i)
+    {
+        Packet packet{};
+        packet.lifecycle_id = i + 1;
+        packet.id = 1000 + i;
+        packet.timestamp_ms = now_ms + i;
+        packet.payload = std::string(64, 'x');
+
+        msg.timestamp_ms = packet.timestamp_ms;
+        msg.payload = packet;
+        bus.publish(msg);
+    }
+
+    PacketMetrics metrics{};
+    REQUIRE(waitUntil([&]
+                      {
+                          metrics = stats.snapshotAt(now_ms);
+                          return metrics.ingress_packets == packet_count &&
+                                 metrics.pending_terminal_events == 0;
+                      }));
+
+    metrics = stats.snapshotAt(now_ms);
+    const std::uint64_t drops_total = dropsTotal(metrics);
+
+    REQUIRE(metrics.processed_packets == 2);
+    REQUIRE(drops_total == 2);
+    REQUIRE(metrics.duplicate_events == 0);
+    REQUIRE(metrics.pending_terminal_events == 0);
+    REQUIRE(metrics.ingress_packets == metrics.terminal_events);
+}
