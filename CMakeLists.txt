@@ -6,6 +6,7 @@ project(EdgeNetSwitch LANGUAGES CXX)
 # -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_DEBUG_READER "Enable debug snapshot reader thread" OFF)
 
 include(CTest)
