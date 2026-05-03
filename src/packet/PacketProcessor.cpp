@@ -1,5 +1,4 @@
 #include "edgenetswitch/packet/PacketProcessor.hpp"
-#include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 
 #include <utility>

@@ -25,7 +25,6 @@
 
 #include <atomic>
 #include <csignal>
-#include <cstdint>
 #include <thread>
 #include <chrono>
 #include <sys/socket.h>
