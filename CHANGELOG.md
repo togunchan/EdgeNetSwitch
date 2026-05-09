@@ -13,8 +13,46 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.7.0` through `v1.8.1` introduce the packet pipeline first as a synthetic data-plane model, then as controlled real UDP ingress.
 - `v1.8.2` through `v1.8.5` mature the system under operational pressure with interpretable telemetry, JSON control responses, bounded admission, explicit backpressure, and documented concurrency semantics.
 - `v1.8.7` elevates the packet path from observable behavior to a formally auditable correctness model with lifecycle-based accounting.
+- `v1.8.8` adds deterministic failure injection on top of that lifecycle model, with explicit drop-reason mapping and overload validation.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.8.8] - Deterministic Failure Injection
+
+### Added
+- Added `FailureInjector` with config-driven `FailureType`, `enabled`, `every_n_packets`, and `delay_ms` controls.
+- Added deterministic count-based injection for reproducible packet failure scheduling.
+- Added failure types for `MalformedPacket`, `ValidationError`, `SimulatedLoss`, `ArtificialDelay`, and `ProcessingRejection`.
+- Added `PacketProcessor` injection support before queue admission.
+
+### Improved
+- Preserved lifecycle identity through injected terminal failures so `PacketStats` accounting remains based on `lifecycle_id`.
+- Mapped injected terminal failures onto explicit `PacketDropped` reasons:
+  - `MalformedPacket` -> `ParseError`
+  - `ValidationError` -> `ValidationError`
+  - `SimulatedLoss` -> `SimulatedLoss`
+  - `ProcessingRejection` -> `ProcessingError`
+- Kept overload separate from injection by continuing to emit `QueueOverflow` only from bounded queue admission.
+- Defined `ArtificialDelay` as non-terminal timing perturbation; delayed packets still continue to queue admission and normal terminal accounting.
+
+### Validated
+- Expanded `PacketPipeline` coverage for deterministic simulated loss, every-N scheduling, and one-terminal-event lifecycle convergence.
+- Added drop-reason mapping coverage for malformed, validation, simulated-loss, and processing-rejection failures.
+- Added `ArtificialDelay` coverage verifying that delay does not create drops or terminal events by itself.
+- Added queue-pressure coverage where injected loss and `QueueOverflow` coexist without collapsing drop attribution.
+- Normalized asynchronous packet tests around bounded eventual convergence instead of immediate timing assumptions.
+
+### Documentation
+- Added failure-injection architecture documentation covering deterministic scheduling, terminal semantics, overload interaction, and `PacketStats` accounting.
+- Updated runtime flow documentation to include `PacketRx -> FailureInjector -> queue admission / validation -> PacketProcessed or PacketDropped -> PacketStats accounting`.
+- Added the v1.8.8 failure matrix for supported failure types, injection points, expected events, and drop reasons.
+
+### Tooling
+- Added `.clangd` configuration using the generated `build/compile_commands.json` database.
+- Enabled `CMAKE_EXPORT_COMPILE_COMMANDS` for CMake builds.
+- Updated VS Code C++ configuration to consume compile commands and project include paths.
+- Added `.clang-format` with the repository C++20 formatting baseline.
+- Improved macOS clangd flag resolution with target and SDK settings; removed invalid ClangTidy configuration.
 
 ## [v1.8.7] - Correctness via Lifecycle-Based Accounting
 
