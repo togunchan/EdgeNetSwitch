@@ -130,6 +130,7 @@ add_executable(EdgeNetSwitchDaemon
     src/packet/PacketValidator.cpp
     src/network/UdpReceiver.cpp
     src/replay/ReplayRecorder.cpp
+    src/replay/ReplayPlayer.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon
@@ -252,6 +253,28 @@ if(BUILD_TESTING)
     target_include_directories(ReplayRecorderTests PRIVATE include)
 
     add_test(NAME ReplayRecorderTests COMMAND ReplayRecorderTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for ReplayPlayer
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(ReplayPlayerTests
+        tests/replay_player_tests.cpp
+        src/replay/ReplayPlayer.cpp
+    )
+
+    target_link_libraries(ReplayPlayerTests
+        PRIVATE
+            MessagingBus
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(ReplayPlayerTests PRIVATE include)
+
+    add_test(NAME ReplayPlayerTests COMMAND ReplayPlayerTests)
 
 endif()
 
