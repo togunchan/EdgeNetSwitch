@@ -6,6 +6,7 @@ project(EdgeNetSwitch LANGUAGES CXX)
 # -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ENABLE_DEBUG_READER "Enable debug snapshot reader thread" OFF)
 
 include(CTest)
@@ -101,6 +102,20 @@ target_include_directories(HealthMonitor
 target_compile_features(HealthMonitor PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# Failure Injection Module
+# -------------------------------------------------------
+add_library(FailureInjection
+    src/failure/FailureInjector.cpp
+)
+
+target_include_directories(FailureInjection
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(FailureInjection PUBLIC cxx_std_20)
+
+# -------------------------------------------------------
 # Daemon Executable
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
@@ -120,6 +135,7 @@ target_link_libraries(EdgeNetSwitchDaemon
     PRIVATE
         Telemetry
         HealthMonitor
+        FailureInjection
 )
 
 target_include_directories(EdgeNetSwitchDaemon
@@ -350,6 +366,7 @@ if(BUILD_TESTING)
         PRIVATE
             Telemetry
             MessagingBus
+            FailureInjection
             Catch2::Catch2WithMain
     )
 

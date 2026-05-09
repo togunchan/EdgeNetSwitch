@@ -19,12 +19,12 @@
 #include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "control/JsonResponse.hpp"
+#include "edgenetswitch/failure/FailureInjector.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <csignal>
-#include <cstdint>
 #include <thread>
 #include <chrono>
 #include <sys/socket.h>
@@ -288,7 +288,8 @@ int main(int argc, char *argv[])
     Telemetry telemetry(bus, cfg);
     HealthMonitor healthMonitor(bus, 500);
     PacketGenerator packetGenerator(bus);
-    PacketProcessor packetProcessor(bus);
+    failure::FailureInjector failureInjector(failure::FailureConfig{});
+    PacketProcessor packetProcessor(bus, failureInjector);
     PacketStats packetStats(bus);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();

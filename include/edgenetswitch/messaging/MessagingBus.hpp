@@ -30,7 +30,10 @@ namespace edgenetswitch
         ParseError,
         ValidationError,
         QueueOverflow,
+        SimulatedLoss,
         RateLimited,
+        ProcessingError,
+        InternalError,
         Unknown
     };
 

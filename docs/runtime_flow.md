@@ -14,13 +14,17 @@
 
 ## Message structure and payload concept
 - Each `Message` carries a `MessageType`, a `timestamp_ms`, and a variant payload.
-- Payloads are either `TelemetryData` (uptime, tick counter, timestamp) or `HealthStatus` (uptime, last heartbeat, alive flag); `std::monostate` represents an empty payload.
+- Payloads include `TelemetryData` (uptime, tick counter, timestamp), `HealthStatus` (uptime, last heartbeat, alive flag), packet lifecycle data (`Packet`), and terminal drop data (`PacketDropped`); `std::monostate` represents an empty payload.
 - Small illustration:
 ```cpp
 struct Message {
     MessageType type;
     std::uint64_t timestamp_ms;
-    using Payload = std::variant<std::monostate, TelemetryData, HealthStatus>;
+    using Payload = std::variant<std::monostate,
+                                 TelemetryData,
+                                 HealthStatus,
+                                 Packet,
+                                 PacketDropped>;
     Payload payload{};
 };
 ```
@@ -51,6 +55,34 @@ bus_.publish({MessageType::Telemetry, data.timestamp_ms, data});
 - `HealthMonitor::onTick()` checks the elapsed time since the last heartbeat; if it exceeds `timeout_ms_` (500 ms in `main`), it publishes a single `HealthStatus{is_alive=false}`. A subsequent heartbeat flips it back to `true` with another single publish.
 - This pattern ensures the health signal reflects liveness without flooding the bus or logs.
 
+## Packet lifecycle flow
+- `PacketRx` is the ingress event for a parsed packet lifecycle.
+- `PacketProcessor` receives `PacketRx` through the bus and runs `FailureInjector` before queue admission.
+- Terminal injected failures publish `PacketDropped` immediately; non-terminal injection, including `ArtificialDelay`, returns to the normal admission path.
+- Queue admission either enqueues the packet for asynchronous processing or publishes `PacketDropped(reason = QueueOverflow)`.
+- Worker-side validation and processing publish exactly one terminal event: `PacketProcessed` or `PacketDropped`.
+- `PacketStats` observes `PacketRx`, `PacketProcessed`, and `PacketDropped` to maintain lifecycle-aware accounting.
+
+Clear flow:
+```mermaid
+flowchart LR
+
+    PacketRx --> FailureInjector
+
+    FailureInjector -->|terminal| PacketDropped
+    FailureInjector -->|non-terminal| QueueAdmission
+
+    QueueAdmission --> PacketProcessed
+    QueueAdmission --> QueueOverflowDrop
+
+    QueueOverflowDrop --> PacketDropped
+
+    PacketProcessed --> PacketStats
+    PacketDropped --> PacketStats
+```
+
+Terminal drop reasons remain causal. Failure injection can produce parser, validation, simulated-loss, or processing-error drops; overload remains represented separately as `QueueOverflow`.
+
 ## Daemon main loop execution order
 - Loop condition: runs while the atomic stop flag remains `false`.
 - Per iteration order:
@@ -66,7 +98,7 @@ bus_.publish({MessageType::Telemetry, data.timestamp_ms, data});
 ## Why this architecture is event-driven
 - The bus decouples producers (e.g., `Telemetry`, `HealthMonitor`, lifecycle emitters) from consumers (loggers or future modules), so modules evolve independently.
 - Messages carry time-stamped payloads, keeping state changes observable without shared mutable state.
-- Event hooks (`SystemStart`, `Telemetry`, `HealthStatus`, `SystemShutdown`) create predictable join points for diagnostics or future control components.
+- Event hooks (`SystemStart`, `Telemetry`, `HealthStatus`, `PacketRx`, `PacketProcessed`, `PacketDropped`, `SystemShutdown`) create predictable join points for diagnostics or future control components.
 - Copying subscriber lists before invocation prevents handler-side blocking from stalling publishers, improving resilience in a long-running daemon.
 
 ## How runtime behavior maps to unit tests
@@ -74,3 +106,4 @@ bus_.publish({MessageType::Telemetry, data.timestamp_ms, data});
 - `tests/telemetry_tests.cpp` checks that `Telemetry::onTick()` publishes a `Telemetry` message each cycle and increments `tick_count`, mirroring the heartbeat source in the loop.
 - `tests/health_monitor_tests.cpp` cover initial alive publication, heartbeat handling, and timeout to not-alive, aligning with the runtime health checks.
 - `tests/health_monitor_transition_tests.cpp` ensure `HealthMonitor` publishes only on alive/not-alive transitions, validating the spam-prevention behavior relied upon by runtime logging.
+- `tests/packet_pipeline_tests.cpp` validates packet lifecycle convergence, failure-injection scheduling, queue-overflow behavior, and `PacketStats` terminal accounting.

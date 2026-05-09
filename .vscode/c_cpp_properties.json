@@ -2,19 +2,18 @@
     "configurations": [
         {
             "name": "macOS",
-            "compilerPath": "/usr/bin/clang++",
+            "compilerPath": "/usr/bin/c++",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "includePath": [
-                "${workspaceFolder}/**",
-                "${workspaceFolder}/third_party/Catch2/src",
-                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1",
-                "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include",
                 "${workspaceFolder}/include",
+                "${workspaceFolder}/third_party/Catch2/src",
                 "${workspaceFolder}/build/third_party/Catch2/generated-includes",
+                "${workspaceFolder}/third_party/nlohmann_json/include",
                 "${workspaceFolder}/src"
             ],
             "defines": [],
             "cStandard": "c11",
-            "cppStandard": "c++20",
+            "cppStandard": "gnu++20",
             "intelliSenseMode": "macos-clang-arm64"
         }
     ],
