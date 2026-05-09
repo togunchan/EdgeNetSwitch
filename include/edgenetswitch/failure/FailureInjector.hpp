@@ -27,16 +27,12 @@ namespace edgenetswitch::failure
     };
     struct FailureConfig
     {
-        double drop_rate{0.0};
-        double delay_ms{0.0};
-        bool enable_malformed{false};
-
-        // 0 = never trigger
-        // 5 = trigger every 5th packet
         FailureType type{FailureType::None};
         bool enabled{false};
-
+        // 0 = never trigger
+        // 5 = trigger every 5th packet
         std::uint64_t every_n_packets{0};
+        double delay_ms{0.0};
     };
 
     class FailureInjector

@@ -19,8 +19,7 @@ namespace edgenetswitch::failure
 
         const bool terminal = config_.type != FailureType::ArtificialDelay;
 
-        FailureResult result{.type = config_.type,
-                             .is_terminal = terminal};
+        FailureResult result{.type = config_.type, .is_terminal = terminal};
 
         if (config_.type == FailureType::ArtificialDelay)
         {
