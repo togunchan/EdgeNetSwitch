@@ -279,6 +279,32 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for replay equivalence
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(ReplayEquivalenceTests
+        tests/replay_equivalence_tests.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+        src/replay/ReplayRecorder.cpp
+        src/replay/ReplayPlayer.cpp
+    )
+
+    target_link_libraries(ReplayEquivalenceTests
+        PRIVATE
+            MessagingBus
+            FailureInjection
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(ReplayEquivalenceTests PRIVATE include)
+
+    add_test(NAME ReplayEquivalenceTests COMMAND ReplayEquivalenceTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for ConfigLoader
 # -------------------------------------------------------
 if(BUILD_TESTING)
