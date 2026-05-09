@@ -5,8 +5,9 @@
 #include <vector>
 #include <mutex>
 #include <cstdint>
-#include <string>
 #include <variant>
+
+#include "edgenetswitch/packet/Packet.hpp"
 
 namespace edgenetswitch
 {
@@ -25,26 +26,6 @@ namespace edgenetswitch
         PacketDropped
     };
 
-    enum class PacketDropReason
-    {
-        ParseError,
-        ValidationError,
-        QueueOverflow,
-        SimulatedLoss,
-        RateLimited,
-        ProcessingError,
-        InternalError,
-        Unknown
-    };
-
-    struct PacketDropped
-    {
-        PacketDropReason reason;
-        std::uint64_t timestamp_ms;
-        std::uint64_t packet_id{0};
-        std::uint64_t lifecycle_id{0};
-    };
-
     struct TelemetryData
     {
         std::uint64_t uptime_ms;
@@ -58,19 +39,6 @@ namespace edgenetswitch
         std::uint64_t last_heartbeat_ms{};
         std::uint64_t silence_duration_ms; // now - last_heartbeat_ms
         bool is_alive{true};
-    };
-
-    struct Packet
-    {
-        std::uint64_t id{0};
-        std::uint64_t lifecycle_id{0};
-        std::string payload;
-        std::uint64_t timestamp_ms{0};
-        std::uint32_t wire_size{0}; // raw packet size coming from UDP
-        std::uint32_t payload_size{0}; // parsed packet size
-        bool valid{false};
-        std::string source_ip{};
-        std::uint16_t source_port{0};
     };
 
     struct Message

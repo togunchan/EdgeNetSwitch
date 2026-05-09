@@ -1,7 +1,8 @@
 #pragma once
 
 #include <string>
-#include "edgenetswitch/messaging/MessagingBus.hpp"
+
+#include "edgenetswitch/packet/Packet.hpp"
 
 namespace edgenetswitch
 {

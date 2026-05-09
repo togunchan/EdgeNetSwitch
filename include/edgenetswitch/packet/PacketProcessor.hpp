@@ -1,7 +1,9 @@
 #pragma once
 
+#include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
+#include <cstddef>
 #include <condition_variable>
 #include <thread>
 #include <deque>

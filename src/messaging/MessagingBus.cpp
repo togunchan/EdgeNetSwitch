@@ -1,5 +1,7 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 
+#include <utility>
+
 namespace edgenetswitch
 {
 

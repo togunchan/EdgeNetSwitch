@@ -1,5 +1,7 @@
 #include "edgenetswitch/packet/PacketValidator.hpp"
-#include "edgenetswitch/core/Logger.hpp"
+
+#include <algorithm>
+#include <cctype>
 
 namespace edgenetswitch
 {

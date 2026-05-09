@@ -1,4 +1,5 @@
 #include "edgenetswitch/core/Logger.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/telemetry/Telemetry.hpp"

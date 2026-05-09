@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <mutex>
 
+#include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 
 namespace edgenetswitch
