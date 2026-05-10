@@ -14,6 +14,12 @@ Count-based scheduling is preferred over randomness because it makes failure pos
 
 Random loss can be useful for workload simulation, but it is a weaker correctness tool. It obscures causality, complicates regression diagnosis, and turns invariant failures into seed-dependent behavior.
 
+For replay validation, `FailureConfig::lifecycle_rules` can target specific
+`lifecycle_id` values. Lifecycle-keyed rules are evaluated before count-based
+rules, which lets replay tests reproduce the same injected terminal failures
+without depending on payload `packet.id` or incidental scheduling outside the
+recorded ingress stream.
+
 ## Lifecycle-Aware Terminal Accounting
 
 Accounting is based on `lifecycle_id`, not payload `packet.id`.
@@ -106,8 +112,15 @@ The important behavior is deterministic lifecycle convergence:
 - `ArtificialDelay` creates no terminal event by itself.
 - `PacketStats` remains internally consistent under injected loss and queue pressure.
 - Drop reasons identify cause without collapsing unrelated failure modes.
+- Replay with the same ingress stream and lifecycle-keyed failure policy
+  produces the same ordered terminal outcomes.
 
 Because packet processing is asynchronous, tests should use bounded eventual assertions for terminal convergence. Immediate synchronous assertions are valid only for behavior that is explicitly synchronous, such as deterministic injection order on the current `MessagingBus` dispatch path.
+
+Replay equivalence is validated through observable terminal history: outcome
+order, lifecycle order, terminal type, and drop reason must match between the
+original execution and replayed execution. The replay stream stores ingress
+only; failures are reproduced by deterministic runtime policy.
 
 ## PacketStats and PacketDropped
 

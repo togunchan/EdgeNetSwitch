@@ -86,6 +86,8 @@ The central logic of EdgeNetSwitch:
 - MessagingBus (pub/sub event system)
 - Telemetry engine (metrics, counters, health)
 - Routing & switching engine (packet simulation)
+- Packet lifecycle accounting with runtime-owned `lifecycle_id`
+- Deterministic failure injection and replay validation
 - System health monitoring
 - Graceful shutdown & signal handling
 
@@ -93,12 +95,34 @@ This daemon represents the “firmware logic” of the edge device.
 
 ---
 
-### 4. Tooling & Testing
+### 4. Runtime Replay & Determinism Layer
+
+The daemon includes a deterministic replay subsystem for validating that the
+same ingress stream produces the same observable terminal history.
+
+- `ReplayRecorder` subscribes to `PacketRx` and writes ordered `ReplayRecord`
+  entries.
+- `ReplayPlayer` republishes those records as `PacketRx`, preserving the
+  original ingress stream.
+- `ReplayOutcomeCollector` subscribes to `PacketProcessed` and `PacketDropped`
+  and records ordered terminal outcomes.
+- `FailureInjector` supports lifecycle-keyed rules so injected failures can be
+  reproduced deterministically during replay.
+
+Replay records are intentionally ingress-only. They do not store processed or
+dropped outcomes. During replay, the runtime must regenerate terminal events
+from the recorded ingress stream and the active deterministic policy.
+
+---
+
+### 5. Tooling & Testing
 
 - CLI tool: `edgenetctl`
 - QEMU automation scripts
 - Daemon deployment scripts
 - Integration tests
+- Replay outcome equivalence tests
+- Deterministic failure-replay tests
 - Developer documentation (Markdown)
 - DevLogs tracking engineering progress
 
@@ -129,6 +153,7 @@ This layer improves usability, testing, and developer experience.
             |  - MessagingBus      |
             |  - Routing Engine    |
             |  - Telemetry Engine  |
+            |  - Replay Validation |
             +----------+-----------+
                       |
                       | CLI / JSON config
@@ -137,6 +162,63 @@ This layer improves usability, testing, and developer experience.
             |     Tooling Layer    |
             |  edgenetctl, scripts |
             +----------------------+
+
+---
+
+## Replay Determinism Model
+
+Replay validation is based on observable terminal equivalence, not on internal
+thread timing or incidental scheduling behavior.
+
+Identity is split deliberately:
+
+- `packet.id` is payload identity. It comes from traffic and may be reused or
+  controlled by the sender.
+- `lifecycle_id` is runtime-owned execution identity. It identifies one packet
+  lifecycle from `PacketRx` to exactly one terminal event.
+
+The replay path is:
+
+1. `ReplayRecorder` observes `PacketRx` and records `(sequence, packet)`.
+2. `ReplayPlayer` publishes the recorded packets back onto `MessagingBus`.
+3. The normal runtime path applies admission, validation, failure injection, and
+   processing.
+4. `ReplayOutcomeCollector` records terminal observable events as ordered
+   `ReplayOutcome` values.
+
+Replay equivalence compares terminal history:
+
+- terminal ordering
+- lifecycle ordering
+- outcome type (`Processed` or `Dropped`)
+- drop attribution for dropped lifecycles
+
+This model keeps replay validation production-relevant. The replay stream
+contains only ingress, while processed and dropped outcomes must be reproduced
+by the runtime itself.
+
+## Deterministic Failure Replay
+
+Failure replay uses deterministic runtime policy rather than storing failures in
+the replay stream.
+
+Count-based rules remain useful for workload-level fault scheduling, but
+lifecycle-keyed rules provide stable replay of specific failures:
+
+- A rule targets a `lifecycle_id`.
+- The configured failure type is applied when that lifecycle is observed.
+- Terminal failures publish `PacketDropped` with causal attribution.
+- Non-terminal failures alter execution conditions and later converge through
+  the normal terminal path.
+
+Because failure replay is keyed by `lifecycle_id`, replay behavior does not
+depend on externally supplied `packet.id` values. This preserves deterministic
+failure reproduction even when payload IDs are duplicated, malformed, or sender
+controlled.
+
+The resulting guarantee is narrow and explicit: given the same ingress stream
+and deterministic failure policy, replayed execution must produce the same
+observable terminal history.
 
 ---
 

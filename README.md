@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.7-orange)
+![Version](https://img.shields.io/badge/version-v1.8.9-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -23,6 +23,7 @@ The system enables early validation of:
 - concurrency boundaries and ownership
 - overload and backpressure behavior
 - lifecycle correctness guarantees
+- replay-verifiable deterministic behavior
 - observability without timing side effects
 
 ## Key Engineering Highlights
@@ -32,6 +33,8 @@ The system enables early validation of:
 - Explicit concurrency model: `MessagingBus` dispatch is synchronous and thread-affine; asynchronous behavior exists only at bounded queue handoffs.
 - Lifecycle-based correctness: `lifecycle_id` is runtime identity, while `packet.id` remains payload identity.
 - Auditable packet invariants: `terminal_events == processed_packets + total_drops` and `ingress_packets == terminal_events + pending_terminal_events`.
+- Replay-verifiable lifecycle accounting: replay records capture ingress only, and runtime outcomes are validated through observable terminal history.
+- Lifecycle-keyed deterministic failure replay: injected faults can be reproduced without depending on externally supplied packet IDs.
 - Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
 - Observability-first design: telemetry export runs off the runtime path, and the read-only control plane returns structured JSON snapshots.
 - Production-grade lifecycle management: RAII cleanup, coordinated shutdown, and thread ownership discipline.
@@ -52,10 +55,20 @@ flowchart LR
         Bus --> State["Runtime State"]
     end
 
+    subgraph Replay["Replay Validation"]
+        Recorder["ReplayRecorder"] -. ingress .-> Records["ReplayRecord Stream"]
+        Records --> Player["ReplayPlayer"]
+        Outcomes --> Collector["ReplayOutcomeCollector"]
+        Collector --> History["Terminal Observable History"]
+    end
+
     subgraph Control["Control Plane"]
         Operator["CLI / UNIX Socket"] --> Queries["Read-Only Queries"]
         Queries -. snapshots .-> State
     end
+
+    Bus -. PacketRx .-> Recorder
+    Player -. PacketRx .-> Bus
 
     subgraph Async["Explicit Async I/O Boundaries"]
         Admission --> WorkQueue["Packet Work Queue"]
@@ -66,7 +79,7 @@ flowchart LR
 
 The main tradeoff is intentional: the runtime prioritizes deterministic execution and explicit loss over hidden blocking, unbounded buffering, or timing side effects from observability paths.
 
-The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load.
+The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence.
 
 ## Tech Stack
 
@@ -117,6 +130,8 @@ cmake --build build
 ```bash
 ctest --test-dir build --output-on-failure
 ```
+
+The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, and terminal observable ordering.
 
 ## Quick Demo (No Hardware Required)
 

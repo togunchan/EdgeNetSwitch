@@ -62,6 +62,8 @@ bus_.publish({MessageType::Telemetry, data.timestamp_ms, data});
 - Queue admission either enqueues the packet for asynchronous processing or publishes `PacketDropped(reason = QueueOverflow)`.
 - Worker-side validation and processing publish exactly one terminal event: `PacketProcessed` or `PacketDropped`.
 - `PacketStats` observes `PacketRx`, `PacketProcessed`, and `PacketDropped` to maintain lifecycle-aware accounting.
+- `ReplayRecorder` observes `PacketRx` for ingress-only replay capture.
+- `ReplayOutcomeCollector` observes `PacketProcessed` and `PacketDropped` for terminal observable validation.
 
 Clear flow:
 ```mermaid
@@ -79,9 +81,26 @@ flowchart LR
 
     PacketProcessed --> PacketStats
     PacketDropped --> PacketStats
+
+    PacketRx -. ingress .-> ReplayRecorder
+    ReplayRecorder -. records .-> ReplayPlayer
+    ReplayPlayer -. PacketRx .-> PacketRx
+    PacketProcessed -. terminal .-> ReplayOutcomeCollector
+    PacketDropped -. terminal .-> ReplayOutcomeCollector
 ```
 
 Terminal drop reasons remain causal. Failure injection can produce parser, validation, simulated-loss, or processing-error drops; overload remains represented separately as `QueueOverflow`.
+
+## Replay validation flow
+- `ReplayRecord` stores ordered ingress: a sequence number and the `Packet` observed on `PacketRx`.
+- The replay stream remains ingress-only. It does not store terminal outcomes, drop decisions, or worker-side behavior.
+- `ReplayPlayer` republishes recorded ingress into a fresh runtime path.
+- `ReplayOutcomeCollector` records terminal observable history as ordered `ReplayOutcome` entries.
+- Replay equivalence compares outcome ordering, lifecycle ordering, terminal type, and drop reason.
+
+This design validates deterministic runtime behavior by requiring replayed execution to regenerate the same terminal history. `packet.id` remains payload identity; `lifecycle_id` remains the runtime-owned execution identity used for terminal ordering, duplicate detection, and deterministic failure replay.
+
+Lifecycle-based failure replay uses deterministic `FailureInjector` rules keyed by `lifecycle_id`. Failures are not serialized into replay records. The same ingress stream plus the same deterministic failure policy must produce the same processed/drop terminal sequence.
 
 ## Daemon main loop execution order
 - Loop condition: runs while the atomic stop flag remains `false`.
@@ -107,3 +126,5 @@ Terminal drop reasons remain causal. Failure injection can produce parser, valid
 - `tests/health_monitor_tests.cpp` cover initial alive publication, heartbeat handling, and timeout to not-alive, aligning with the runtime health checks.
 - `tests/health_monitor_transition_tests.cpp` ensure `HealthMonitor` publishes only on alive/not-alive transitions, validating the spam-prevention behavior relied upon by runtime logging.
 - `tests/packet_pipeline_tests.cpp` validates packet lifecycle convergence, failure-injection scheduling, queue-overflow behavior, and `PacketStats` terminal accounting.
+- `tests/replay_equivalence_tests.cpp` validates replay equivalence against aggregate lifecycle metrics.
+- `tests/replay_outcome_equivalence_tests.cpp` validates replay equivalence against ordered terminal observable history, including deterministic failure replay.
