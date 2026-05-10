@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 namespace edgenetswitch
 {
@@ -25,6 +26,13 @@ namespace edgenetswitch::failure
         bool is_terminal;
         double delay_ms{0.0};
     };
+
+    struct FailureRule
+    {
+        std::uint64_t lifecycle_id{0};
+        FailureType type{FailureType::None};
+    };
+
     struct FailureConfig
     {
         FailureType type{FailureType::None};
@@ -33,6 +41,7 @@ namespace edgenetswitch::failure
         // 5 = trigger every 5th packet
         std::uint64_t every_n_packets{0};
         double delay_ms{0.0};
+        std::vector<FailureRule> lifecycle_rules{};
     };
 
     class FailureInjector
