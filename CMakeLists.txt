@@ -476,6 +476,28 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for interface registry
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(InterfaceRegistryTests
+        tests/interface_registry_tests.cpp
+        src/switching/InterfaceRegistry.cpp
+        src/switching/SwitchPort.cpp
+    )
+
+    target_link_libraries(InterfaceRegistryTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(InterfaceRegistryTests PRIVATE include)
+
+    add_test(NAME InterfaceRegistryTests COMMAND InterfaceRegistryTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for MAC table
 # -------------------------------------------------------
 if(BUILD_TESTING)
