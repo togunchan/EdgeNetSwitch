@@ -1,6 +1,4 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
-#include "edgenetswitch/core/TimeUtils.hpp"
-#include <cmath>
 #include <iostream>
 
 namespace edgenetswitch
@@ -23,16 +21,31 @@ namespace edgenetswitch
                       {
                         const Packet &p = std::get<Packet>(msg.payload);
 
+                        std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+                        if (!completed_lifecycles_.insert(p.lifecycle_id).second)
+                        {
+                            duplicate_events_.fetch_add(1, std::memory_order_relaxed);
+                            return;
+                        }
+
                         rx_packets_.fetch_add(1, std::memory_order_relaxed);
                         rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed);
-                        processed_packets_.fetch_add(1, std::memory_order_relaxed); 
-                        onTerminal(p.lifecycle_id); });
+                        processed_packets_.fetch_add(1, std::memory_order_relaxed);
+                        terminal_events_.fetch_add(1, std::memory_order_relaxed); });
 
         bus.subscribe(MessageType::PacketDropped, [this](const Message &msg)
                       {
                         const auto drop = std::get<PacketDropped>(msg.payload);
+
+                        std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+                        if (!completed_lifecycles_.insert(drop.lifecycle_id).second)
+                        {
+                            duplicate_events_.fetch_add(1, std::memory_order_relaxed);
+                            return;
+                        }
+
                         drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed);
-                        onTerminal(drop.lifecycle_id); });
+                        terminal_events_.fetch_add(1, std::memory_order_relaxed); });
 
         bus.subscribe(MessageType::PacketRx, [this](const Message &msg)
                       { 
@@ -50,17 +63,26 @@ namespace edgenetswitch
         const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
         const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
         const std::uint64_t ingress_packets = ingress_packets_.load(std::memory_order_relaxed);
-        const std::uint64_t processed_packets = processed_packets_.load(std::memory_order_relaxed);
-        const std::uint64_t processing_gap = ingress_packets >= processed_packets ? ingress_packets - processed_packets : 0;
-        const std::uint64_t terminal_events = terminal_events_.load(std::memory_order_relaxed);
-        const std::uint64_t pending_terminal_events = ingress_packets > terminal_events ? ingress_packets - terminal_events : 0;
 
+        std::uint64_t processed_packets = 0;
+        std::uint64_t terminal_events = 0;
+        std::uint64_t duplicate_events = 0;
         std::unordered_map<PacketDropReason, std::uint64_t> drop_snapshot;
 
-        for (const auto &[reason, counter] : drop_counters_)
         {
-            drop_snapshot[reason] = counter.load(std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+            processed_packets = processed_packets_.load(std::memory_order_relaxed);
+            terminal_events = terminal_events_.load(std::memory_order_relaxed);
+            duplicate_events = duplicate_events_.load(std::memory_order_relaxed);
+
+            for (const auto &[reason, counter] : drop_counters_)
+            {
+                drop_snapshot[reason] = counter.load(std::memory_order_relaxed);
+            }
         }
+
+        const std::uint64_t processing_gap = ingress_packets >= processed_packets ? ingress_packets - processed_packets : 0;
+        const std::uint64_t pending_terminal_events = ingress_packets > terminal_events ? ingress_packets - terminal_events : 0;
 
         return PacketMetrics{
             .rx_packets = current_packets,
@@ -74,7 +96,7 @@ namespace edgenetswitch
             .processed_packets = processed_packets,
             .processing_gap = processing_gap,
             .terminal_events = terminal_events,
-            .duplicate_events = duplicate_events_.load(std::memory_order_relaxed),
+            .duplicate_events = duplicate_events,
             .pending_terminal_events = pending_terminal_events};
     }
 

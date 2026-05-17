@@ -53,7 +53,7 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> terminal_events_{0};
         std::atomic<std::uint64_t> duplicate_events_{0};
         std::unordered_set<uint64_t> completed_lifecycles_;
-        std::mutex lifecycle_mutex_;
+        mutable std::mutex lifecycle_mutex_;
     };
 
 } // namespace edgenetswitch
