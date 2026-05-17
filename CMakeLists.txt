@@ -526,8 +526,10 @@ if(BUILD_TESTING)
 
     add_executable(SwitchForwardingEngineTests
         tests/switch_forwarding_engine_tests.cpp
+        src/switching/InterfaceRegistry.cpp
         src/switching/MacAddress.cpp
         src/switching/MacTable.cpp
+        src/switching/SwitchPort.cpp
         src/switching/SwitchForwardingEngine.cpp
     )
 
