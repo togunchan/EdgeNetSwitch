@@ -1,5 +1,5 @@
 #pragma once
-
+#include "edgenetswitch/switching/MacAddress.hpp"
 #include <cstdint>
 #include <string>
 
@@ -36,5 +36,7 @@ namespace edgenetswitch
         bool valid{false};
         std::string source_ip{};
         std::uint16_t source_port{0};
+        std::optional<MacAddress> source_mac;
+        std::optional<MacAddress> destination_mac;
     };
 } // namespace edgenetswitch

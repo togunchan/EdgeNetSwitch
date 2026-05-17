@@ -476,6 +476,29 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for Switch forwarding engine
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(SwitchForwardingEngineTests
+        tests/switch_forwarding_engine_tests.cpp
+        src/switching/MacAddress.cpp
+        src/switching/MacTable.cpp
+        src/switching/SwitchForwardingEngine.cpp
+    )
+
+    target_link_libraries(SwitchForwardingEngineTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(SwitchForwardingEngineTests PRIVATE include)
+
+    add_test(NAME SwitchForwardingEngineTests COMMAND SwitchForwardingEngineTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for Control dispatch
 # -------------------------------------------------------
 if(BUILD_TESTING)
