@@ -476,6 +476,28 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for MAC table
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(MacTableTests
+        tests/mac_table_tests.cpp
+        src/switching/MacAddress.cpp
+        src/switching/MacTable.cpp
+    )
+
+    target_link_libraries(MacTableTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(MacTableTests PRIVATE include)
+
+    add_test(NAME MacTableTests COMMAND MacTableTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for Switch forwarding engine
 # -------------------------------------------------------
 if(BUILD_TESTING)

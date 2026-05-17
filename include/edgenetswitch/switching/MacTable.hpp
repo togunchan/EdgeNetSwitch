@@ -18,6 +18,8 @@ namespace edgenetswitch
         [[nodiscard]]
         std::optional<std::uint32_t> lookup(const MacAddress &mac) const;
 
+        void ageOut(std::uint64_t current_tick, std::uint64_t max_age);
+
         [[nodiscard]]
         std::vector<MacTableEntry> snapshot() const;
 

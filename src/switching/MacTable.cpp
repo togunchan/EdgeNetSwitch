@@ -11,6 +11,10 @@ namespace edgenetswitch
 
     void MacTable::learn(const MacAddress &mac, std::uint32_t port_id, std::uint64_t tick)
     {
+
+        if (capacity_ == 0)
+            return;
+
         auto it = entries_.find(mac);
 
         if (it != entries_.end())
@@ -22,7 +26,16 @@ namespace edgenetswitch
 
         if (entries_.size() >= capacity_)
         {
-            return;
+            auto oldest = entries_.begin();
+
+            for (auto candidate = entries_.begin(); candidate != entries_.end(); ++candidate)
+            {
+                if (candidate->second.last_seen_tick < oldest->second.last_seen_tick)
+                {
+                    oldest = candidate;
+                }
+            }
+            entries_.erase(oldest);
         }
         entries_.emplace(mac, MacTableEntry{
                                   .mac = mac,
@@ -39,6 +52,23 @@ namespace edgenetswitch
             return std::nullopt;
 
         return it->second.port_id;
+    }
+
+    void MacTable::ageOut(std::uint64_t current_tick, std::uint64_t max_age)
+    {
+        auto it = entries_.begin();
+
+        while (it != entries_.end())
+        {
+            if ((current_tick - it->second.last_seen_tick) > max_age)
+            {
+                it = entries_.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 
     std::vector<MacTableEntry> MacTable::snapshot() const
