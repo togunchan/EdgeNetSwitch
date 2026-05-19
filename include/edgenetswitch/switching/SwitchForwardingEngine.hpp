@@ -17,6 +17,8 @@ namespace edgenetswitch
         ForwardingDecision processPacket(const Packet &packet, std::uint32_t ingress_port,
                                          std::uint64_t tick);
 
+        const MacTable &macTable() const noexcept;
+
     private:
         MacTable &mac_table_;
         InterfaceRegistry& interfaces_;

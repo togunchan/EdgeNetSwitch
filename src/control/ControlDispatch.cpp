@@ -1,14 +1,15 @@
-#include <atomic>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
 
-#include "ControlContext.hpp"
+#include "edgenetswitch/core/TimeUtils.hpp"
+
 #include "ControlDispatch.hpp"
-#include "runtime/SnapshotPublisher.hpp"
+#include "JsonResponse.hpp"
+#include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
-#include "JsonResponse.hpp"
+#include "runtime/SnapshotPublisher.hpp"
 
 namespace edgenetswitch::control
 {
@@ -27,9 +28,7 @@ namespace edgenetswitch::control
         return ctx.publisher->load();
     }
 
-    static ControlResponse handleStatus(
-        const ControlContext &ctx,
-        const std::string &arg)
+    static ControlResponse handleStatus(const ControlContext &ctx, const std::string &arg)
     {
         if (!arg.empty() && arg != "json")
         {
@@ -56,17 +55,14 @@ namespace edgenetswitch::control
 
         return ControlResponse{
             .success = true,
-            .payload =
-                "state=" + stateToString(snap->state) + "\n" +
-                "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
-                "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n" +
-                "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n" +
-                "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms)};
+            .payload = "state=" + stateToString(snap->state) + "\n" +
+                       "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
+                       "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n" +
+                       "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n" +
+                       "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms)};
     }
 
-    static ControlResponse handleHealth(
-        const ControlContext &ctx,
-        const std::string &arg)
+    static ControlResponse handleHealth(const ControlContext &ctx, const std::string &arg)
     {
         if (!arg.empty() && arg != "json")
         {
@@ -91,15 +87,12 @@ namespace edgenetswitch::control
 
         return ControlResponse{
             .success = true,
-            .payload =
-                "alive=" + std::string(snap->health.is_alive ? "true" : "false") + "\n" +
-                "silence_ms=" + std::to_string(snap->health.silence_duration_ms) + "\n" +
-                "last_heartbeat_ms=" + std::to_string(snap->health.last_heartbeat_ms)};
+            .payload = "alive=" + std::string(snap->health.is_alive ? "true" : "false") + "\n" +
+                       "silence_ms=" + std::to_string(snap->health.silence_duration_ms) + "\n" +
+                       "last_heartbeat_ms=" + std::to_string(snap->health.last_heartbeat_ms)};
     }
 
-    static ControlResponse handleMetrics(
-        const ControlContext &ctx,
-        const std::string &arg)
+    static ControlResponse handleMetrics(const ControlContext &ctx, const std::string &arg)
     {
         if (!arg.empty() && arg != "json")
         {
@@ -121,16 +114,13 @@ namespace edgenetswitch::control
             return makeJsonSuccess(j);
         }
 
-        return ControlResponse{
-            .success = true,
-            .payload =
-                "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
-                "tick_count=" + std::to_string(snap->metrics.tick_count)};
+        return ControlResponse{.success = true,
+                               .payload = "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) +
+                                          "\n" +
+                                          "tick_count=" + std::to_string(snap->metrics.tick_count)};
     }
 
-    static ControlResponse handleVersion(
-        const ControlContext &,
-        const std::string &arg)
+    static ControlResponse handleVersion(const ControlContext &, const std::string &arg)
     {
         if (!arg.empty() && arg != "json")
         {
@@ -147,17 +137,12 @@ namespace edgenetswitch::control
             return makeJsonSuccess(j);
         }
 
-        return ControlResponse{
-            .success = true,
-            .payload =
-                std::string("version=") + VERSION + "\n" +
-                "protocol=1.2\n" +
-                "build=debug"};
+        return ControlResponse{.success = true,
+                               .payload = std::string("version=") + VERSION + "\n" +
+                                          "protocol=1.2\n" + "build=debug"};
     }
 
-    static ControlResponse handleHelp(
-        const ControlContext &,
-        const std::string &target)
+    static ControlResponse handleHelp(const ControlContext &, const std::string &target)
     {
         const auto &handlers = commandTable();
 
@@ -227,9 +212,7 @@ namespace edgenetswitch::control
         }
     }
 
-    static ControlResponse handlePacketStats(
-        const ControlContext &ctx,
-        const std::string &arg)
+    static ControlResponse handlePacketStats(const ControlContext &ctx, const std::string &arg)
     {
         if (!arg.empty() && arg != "json")
         {
@@ -290,15 +273,15 @@ namespace edgenetswitch::control
 
         payload += "rx_packets_per_sec=" + std::to_string(snap->packet.rx_packets_per_sec) + "\n";
         payload += "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n";
-        payload += "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
+        payload +=
+            "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
         payload += "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw);
         payload += "terminal_events=" + std::to_string(snap->packet.terminal_events);
         payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events);
-        payload += "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events);
+        payload +=
+            "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events);
 
-        return ControlResponse{
-            .success = true,
-            .payload = std::move(payload)};
+        return ControlResponse{.success = true, .payload = std::move(payload)};
     }
 
     static ControlResponse handleConfig(const ControlContext &ctx, const std::string &arg)
@@ -329,14 +312,135 @@ namespace edgenetswitch::control
 
         return ControlResponse{
             .success = true,
-            .payload =
-                "log.level=" + cfg.log.level + "\n" +
-                "log.file=" + cfg.log.file + "\n" +
-                "daemon.tick_ms=" + std::to_string(cfg.daemon.tick_ms) + "\n" +
-                "udp.enabled=" + std::string(cfg.udp.enabled ? "true" : "false") + "\n" +
-                "udp.port=" + std::to_string(cfg.udp.port) + "\n" +
-                "rate.alpha=" + std::to_string(cfg.rate.alpha) + "\n" +
-                "rate.window_ms=" + std::to_string(cfg.rate.window_ms)};
+            .payload = "log.level=" + cfg.log.level + "\n" + "log.file=" + cfg.log.file + "\n" +
+                       "daemon.tick_ms=" + std::to_string(cfg.daemon.tick_ms) + "\n" +
+                       "udp.enabled=" + std::string(cfg.udp.enabled ? "true" : "false") + "\n" +
+                       "udp.port=" + std::to_string(cfg.udp.port) + "\n" +
+                       "rate.alpha=" + std::to_string(cfg.rate.alpha) + "\n" +
+                       "rate.window_ms=" + std::to_string(cfg.rate.window_ms)};
+    }
+
+    static ControlResponse handleSendPacket(const ControlContext &ctx, const std::string &arg)
+    {
+        if (!ctx.bus)
+        {
+            return makeJsonError(error::InternalError, "messaging bus unavailable");
+        }
+
+        if (arg == "broadcast")
+        {
+            auto source_mac = MacAddress::fromString("00:11:22:33:44:55");
+
+            auto destination_mac = MacAddress::fromString("ff:ff:ff:ff:ff:ff");
+
+            if (!source_mac || !destination_mac)
+            {
+                return makeJsonError(error::InternalError, "failed to construct mac addresses");
+            }
+
+            Packet packet{};
+            packet.id = 999;
+            packet.lifecycle_id = 999;
+            packet.timestamp_ms = nowMs();
+            packet.payload = "control-plane-broadcast";
+            packet.payload_size = static_cast<std::uint32_t>(packet.payload.size());
+
+            packet.valid = true;
+
+            packet.source_mac = *source_mac;
+            packet.destination_mac = *destination_mac;
+
+            packet.ingress_port = 2;
+
+            Message msg{};
+            msg.type = MessageType::PacketRx;
+            msg.timestamp_ms = packet.timestamp_ms;
+            msg.payload = packet;
+
+            ctx.bus->publish(std::move(msg));
+
+            nlohmann::json j;
+            j["result"] = "packet injected";
+            j["mode"] = arg;
+            j["lifecycle_id"] = packet.lifecycle_id;
+
+            return makeJsonSuccess(j);
+        }
+        else if (arg == "learn")
+        {
+            Packet learn_packet{};
+            learn_packet.id = 1000;
+            learn_packet.lifecycle_id = 1000;
+            learn_packet.timestamp_ms = nowMs();
+            learn_packet.payload = "mac-learning";
+            learn_packet.valid = true;
+
+            learn_packet.source_mac = MacAddress::fromString("AA:AA:AA:AA:AA:AA");
+
+            learn_packet.destination_mac = MacAddress::fromString("FF:FF:FF:FF:FF:FF");
+
+            learn_packet.ingress_port = 1;
+
+            Message msg{};
+            msg.type = MessageType::PacketRx;
+            msg.timestamp_ms = learn_packet.timestamp_ms;
+            msg.payload = learn_packet;
+
+            ctx.bus->publish(std::move(msg));
+
+            Packet unicast_packet{};
+            unicast_packet.id = 1001;
+            unicast_packet.lifecycle_id = 1001;
+            unicast_packet.timestamp_ms = nowMs();
+            unicast_packet.payload = "known-unicast";
+            unicast_packet.valid = true;
+
+            unicast_packet.source_mac = MacAddress::fromString("BB:BB:BB:BB:BB:BB");
+
+            unicast_packet.destination_mac = MacAddress::fromString("AA:AA:AA:AA:AA:AA");
+
+            unicast_packet.ingress_port = 2;
+
+            Message unicast_msg{};
+            unicast_msg.type = MessageType::PacketRx;
+            unicast_msg.timestamp_ms = unicast_packet.timestamp_ms;
+            unicast_msg.payload = unicast_packet;
+
+            ctx.bus->publish(std::move(unicast_msg));
+
+            nlohmann::json j;
+            j["result"] = "mac learning sequence injected";
+
+            return makeJsonSuccess(j);
+        }
+        return makeJsonError(error::InvalidRequest, "unsupported packet mode: " + arg);
+    }
+
+    static ControlResponse handleShow(const ControlContext &ctx, const std::string &arg)
+    {
+        if (!ctx.forwarding_engine)
+        {
+            return makeJsonError(error::InternalError, "forwarding engine unavailable");
+        }
+
+        if (arg == "mac-table")
+        {
+            const auto entries = ctx.forwarding_engine->macTable().snapshot();
+
+            std::string payload;
+
+            payload += "mac_table_size=" + std::to_string(entries.size()) + "\n";
+
+            for (const auto &entry : entries)
+            {
+                payload += entry.mac.toString() + " port=" + std::to_string(entry.port_id) +
+                           " last_seen=" + std::to_string(entry.last_seen_tick) + "\n";
+            }
+
+            return ControlResponse{.success = true, .payload = std::move(payload)};
+        }
+
+        return makeJsonError(error::InvalidRequest, "unsupported packet mode: " + arg);
     }
 
     static const CommandTable &commandTable()
@@ -388,14 +492,21 @@ namespace edgenetswitch::control
               .description = "current runtime configuration",
               .fields = {"log", "daemon", "udp", "rate"},
               .handler = handleConfig}},
-
+            {"send-packet",
+             {.name = "send-packet",
+              .description = "inject synthetic packet into runtime",
+              .fields = {"broadcast"},
+              .handler = handleSendPacket}},
+            {"show",
+             {.name = "show",
+              .description = "runtime inspection commands",
+              .fields = {"mac-table"},
+              .handler = handleShow}},
         };
         return table;
     }
 
-    static ControlResponse dispatchV12(
-        const ControlRequest &req,
-        const ControlContext &ctx)
+    static ControlResponse dispatchV12(const ControlRequest &req, const ControlContext &ctx)
     {
         std::string command = req.command;
         std::string arg;

@@ -65,4 +65,8 @@ namespace edgenetswitch
         return decision;
     }
 
+    const MacTable &SwitchForwardingEngine::macTable() const noexcept
+    {
+        return mac_table_;
+    }
 } // namespace edgenetswitch

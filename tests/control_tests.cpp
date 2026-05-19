@@ -1,9 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/control/ControlContext.hpp"
 #include "../src/control/ControlDispatch.hpp"
 #include "../src/runtime/SnapshotPublisher.hpp"
 
+#include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
 

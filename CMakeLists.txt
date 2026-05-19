@@ -608,6 +608,7 @@ if(BUILD_TESTING)
             Config
             HealthMonitor
             Logger
+            Switching
             Catch2::Catch2WithMain
     )
 

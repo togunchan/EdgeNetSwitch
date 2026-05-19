@@ -1,38 +1,46 @@
-#include "edgenetswitch/core/Logger.hpp"
-#include "edgenetswitch/packet/Packet.hpp"
-#include "edgenetswitch/messaging/MessagingBus.hpp"
-#include "edgenetswitch/core/Config.hpp"
-#include "edgenetswitch/telemetry/Telemetry.hpp"
-#include "edgenetswitch/runtime/HealthMonitor.hpp"
-#include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "control/ControlDispatch.hpp"
+#include "control/JsonResponse.hpp"
+#include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/control/ControlWire.hpp"
-#include "runtime/RuntimeStatusBuilder.hpp"
-#include "control/ControlContext.hpp"
-#include "control/ControlDispatch.hpp"
-#include "telemetry/TelemetryExportManager.hpp"
-#include "telemetry/InMemoryTelemetryExporter.hpp"
-#include "telemetry/FileTelemetryExporter.hpp"
-#include "runtime/SnapshotPublisher.hpp"
-#include "edgenetswitch/packet/PacketGenerator.hpp"
-#include "edgenetswitch/packet/PacketStats.hpp"
-#include "edgenetswitch/packet/PacketProcessor.hpp"
-#include "edgenetswitch/network/UdpReceiver.hpp"
+#include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
-#include "control/JsonResponse.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/network/UdpReceiver.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
+#include "edgenetswitch/packet/PacketGenerator.hpp"
+#include "edgenetswitch/packet/PacketProcessor.hpp"
+#include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "edgenetswitch/switching/ForwardingDecision.hpp"
+#include "edgenetswitch/switching/ForwardingEvent.hpp"
+#include "edgenetswitch/switching/InterfaceRegistry.hpp"
+#include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
+#include "edgenetswitch/switching/SwitchPort.hpp"
+#include "edgenetswitch/telemetry/Telemetry.hpp"
+#include "runtime/RuntimeStatusBuilder.hpp"
+#include "runtime/SnapshotPublisher.hpp"
+#include "telemetry/FileTelemetryExporter.hpp"
+#include "telemetry/InMemoryTelemetryExporter.hpp"
+#include "telemetry/TelemetryExportManager.hpp"
 
+#include <functional>
 #include <nlohmann/json.hpp>
 
 #include <atomic>
-#include <csignal>
-#include <thread>
 #include <chrono>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
+#include <csignal>
 #include <cstring>
 #include <memory>
+#include <string>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <thread>
+#include <unistd.h>
+#include <utility>
 
 using namespace edgenetswitch;
 using namespace edgenetswitch::telemetry;
@@ -103,9 +111,8 @@ namespace
 
     void writeControlResponse(int client_fd, const control::ControlResponse &resp)
     {
-        const std::string wire = resp.payload.empty()
-                                     ? control::encodeResponse(resp)
-                                     : resp.payload;
+        const std::string wire =
+            resp.payload.empty() ? control::encodeResponse(resp) : resp.payload;
         // NOTE:
         // write() may perform a partial write on sockets, especially under load.
         // For current small control-plane responses this is acceptable,
@@ -117,12 +124,11 @@ namespace
         ::write(client_fd, wire.c_str(), wire.size());
     }
 
-    void controlSocketThreadFunc(int control_fd,
-                                 const Telemetry &telemetry,
+    void controlSocketThreadFunc(int control_fd, const Telemetry &telemetry,
                                  const RuntimeState &runtimeState,
                                  const HealthMonitor &healthMonitor,
-                                 const std::atomic_bool &stopRequested,
-                                 const core::Config &cfg)
+                                 const std::atomic_bool &stopRequested, const core::Config &cfg,
+                                 MessagingBus &bus, SwitchForwardingEngine &forwardingEngine)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
         {
@@ -149,25 +155,25 @@ namespace
                 auto sep = cmd.find('|');
                 if (sep == std::string::npos)
                 {
-                    const auto resp = control::makeJsonError(
-                        control::error::InvalidRequest,
-                        "malformed_request");
+                    const auto resp =
+                        control::makeJsonError(control::error::InvalidRequest, "malformed_request");
                     writeControlResponse(client_fd, resp);
                     ::close(client_fd);
                     continue;
                 }
 
-                control::ControlRequest req{
-                    .version = cmd.substr(0, sep),
-                    .command = cmd.substr(sep + 1)};
+                control::ControlRequest req{.version = cmd.substr(0, sep),
+                                            .command = cmd.substr(sep + 1)};
 
                 // trim newline
-                req.command.erase(
-                    req.command.find_last_not_of(" \n\r\t") + 1);
+                req.command.erase(req.command.find_last_not_of(" \n\r\t") + 1);
 
-                control::ControlContext ctx{
-                    .publisher = &g_snapshotPublisher,
-                    .config = &cfg};
+                Logger::info("Control command received: " + req.command);
+
+                control::ControlContext ctx{.publisher = &g_snapshotPublisher,
+                                            .config = &cfg,
+                                            .bus = &bus,
+                                            .forwarding_engine = &forwardingEngine};
 
                 const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
                 writeControlResponse(client_fd, resp);
@@ -238,9 +244,7 @@ namespace
         Logger::info("--------------");
 
         const nlohmann::json parsed = nlohmann::json::parse(accum, nullptr, false);
-        if (!parsed.is_discarded() &&
-            parsed.is_object() &&
-            parsed.contains("status") &&
+        if (!parsed.is_discarded() && parsed.is_object() && parsed.contains("status") &&
             parsed["status"].is_string())
         {
             if (parsed["status"] == "ok")
@@ -290,7 +294,27 @@ int main(int argc, char *argv[])
     HealthMonitor healthMonitor(bus, 500);
     PacketGenerator packetGenerator(bus);
     failure::FailureInjector failureInjector(failure::FailureConfig{});
-    PacketProcessor packetProcessor(bus, failureInjector);
+    InterfaceRegistry interfaces;
+
+    SwitchPort port1(1, "eth1");
+    port1.setState(PortState::Up);
+    interfaces.addPort(std::move((port1)));
+
+    SwitchPort port2(2, "eth2");
+    port2.setState(PortState::Up);
+    interfaces.addPort(std::move((port2)));
+
+    SwitchPort port3(3, "eth3");
+    port3.setState(PortState::Up);
+    interfaces.addPort(std::move((port3)));
+
+    SwitchPort port4(4, "eth4");
+    port4.setState(PortState::Up);
+    interfaces.addPort(std::move((port4)));
+
+    MacTable macTable(1024);
+    SwitchForwardingEngine forwardingEngine(macTable, interfaces);
+    PacketProcessor packetProcessor(bus, forwardingEngine, failureInjector);
     PacketStats packetStats(bus);
     TelemetryExportManager exportManager;
     int control_fd = createControlSocket();
@@ -311,25 +335,18 @@ int main(int argc, char *argv[])
     exportManager.start();
 
     {
-        auto status = statusBuilder.build(
-            telemetry,
-            healthMonitor,
-            packetStats,
-            runtimeState,
-            nowMs());
+        auto status =
+            statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
 
         g_snapshotPublisher.publish(status);
     }
 
     if (control_fd >= 0)
     {
-        controlThread = std::thread(controlSocketThreadFunc,
-                                    control_fd,
-                                    std::cref(telemetry),
-                                    std::cref(runtimeState),
-                                    std::cref(healthMonitor),
-                                    std::cref(g_stopRequested),
-                                    std::cref(cfg));
+        controlThread = std::thread(controlSocketThreadFunc, control_fd, std::cref(telemetry),
+                                    std::cref(runtimeState), std::cref(healthMonitor),
+                                    std::cref(g_stopRequested), std::cref(cfg), std::ref(bus),
+                                    std::ref(forwardingEngine));
     }
     if (control_fd < 0)
     {
@@ -342,71 +359,104 @@ int main(int argc, char *argv[])
     }
 
 #ifdef EDGENETSWITCH_DEBUG_READER
-    std::thread debugReaderThread([]
-                                  {
-        while (!g_stopRequested.load())
+    std::thread debugReaderThread(
+        []
         {
-        auto snap = g_snapshotPublisher.load();
-        if (snap)
-        {
-            Logger::debug(
-                "debug_reader: version=" + std::to_string(snap->snapshot_version) +
-                " tick=" + std::to_string(snap->metrics.tick_count)
-            );
-        }
+            while (!g_stopRequested.load())
+            {
+                auto snap = g_snapshotPublisher.load();
+                if (snap)
+                {
+                    Logger::debug(
+                        "debug_reader: version=" + std::to_string(snap->snapshot_version) +
+                        " tick=" + std::to_string(snap->metrics.tick_count));
+                }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        } });
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+        });
 #endif
 
-    bus.subscribe(MessageType::SystemStart, [&](const Message &msg)
-                  { Logger::info("SystemStart received by daemon"); });
+    bus.subscribe(MessageType::SystemStart,
+                  [&](const Message &msg) { Logger::info("SystemStart received by daemon"); });
 
-    bus.subscribe(MessageType::SystemShutdown, [&](const Message &msg)
-                  { Logger::info("SystemShutdown received by daemon"); });
+    bus.subscribe(MessageType::SystemShutdown,
+                  [&](const Message &msg) { Logger::info("SystemShutdown received by daemon"); });
 
-    bus.subscribe(MessageType::Telemetry, [&](const Message &msg)
+    bus.subscribe(MessageType::Telemetry,
+                  [&](const Message &msg)
                   {
-        healthMonitor.onHeartbeat();
+                      healthMonitor.onHeartbeat();
 
-        const auto *data = std::get_if<TelemetryData>(&msg.payload);
-        if (data)
-        {
-            // Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms) + " tick_count=" + std::to_string(data->tick_count));
+                      const auto *data = std::get_if<TelemetryData>(&msg.payload);
+                      if (data)
+                      {
+                          // Logger::debug("Telemetry: uptime_ms=" + std::to_string(data->uptime_ms)
+                          // + " tick_count=" + std::to_string(data->tick_count));
 
-            RuntimeMetrics metrics{
-                .uptime_ms = data->uptime_ms,
-                .tick_count = data->tick_count};
+                          RuntimeMetrics metrics{.uptime_ms = data->uptime_ms,
+                                                 .tick_count = data->tick_count};
 
-            exportManager.enqueue(std::move(metrics));
-        } });
+                          exportManager.enqueue(std::move(metrics));
+                      }
+                  });
 
-    bus.subscribe(MessageType::HealthStatus, [&](const Message &msg)
-                  {    
-        const auto *hs = std::get_if<HealthStatus>(&msg.payload);
-        if (!hs)
-            return;
-
-        if (!hs->is_alive)
-        {
-            Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
-        }
-        else
-        {
-            Logger::debug("HealthStatus: alive");
-        } });
-
-    bus.subscribe(MessageType::PacketRx, [](const Message &msg)
+    bus.subscribe(MessageType::HealthStatus,
+                  [&](const Message &msg)
                   {
-    const Packet &p = std::get<Packet>(msg.payload);
-    Logger::info(
-    "Packet received: "
-    "id=" + std::to_string(p.id) +
-    " payload=" + p.payload +
-    " timestamp=" + formatTimestamp(p.timestamp_ms) +
-    " source_ip=" + p.source_ip +
-    " source_port=" + std::to_string(p.source_port)
-); });
+                      const auto *hs = std::get_if<HealthStatus>(&msg.payload);
+                      if (!hs)
+                          return;
+
+                      if (!hs->is_alive)
+                      {
+                          Logger::warn("HealthStatus: NOT ALIVE (timeout exceeded)");
+                      }
+                      else
+                      {
+                          Logger::debug("HealthStatus: alive");
+                      }
+                  });
+
+    bus.subscribe(MessageType::PacketRx,
+                  [](const Message &msg)
+                  {
+                      const Packet &p = std::get<Packet>(msg.payload);
+                      Logger::info("Packet received: "
+                                   "id=" +
+                                   std::to_string(p.id) + " payload=" + p.payload + " timestamp=" +
+                                   formatTimestamp(p.timestamp_ms) + " source_ip=" + p.source_ip +
+                                   " source_port=" + std::to_string(p.source_port));
+                  });
+
+    bus.subscribe(MessageType::ForwardingDecisionMade,
+                  [](const Message &msg)
+                  {
+                      const auto *event = std::get_if<ForwardingEvent>(&msg.payload);
+
+                      if (!event)
+                          return;
+
+                      std::string action = "Drop";
+
+                      if (event->action == ForwardingAction::Flood)
+                          action = "Flood";
+                      else if (event->action == ForwardingAction::ForwardToPorts)
+                          action = "ForwardToPorts";
+
+                      std::string ports;
+                      for (std::size_t i = 0; i < event->egress_ports.size(); ++i)
+                      {
+                          if (i != 0)
+                              ports += ",";
+
+                          ports += std::to_string(event->egress_ports[i]);
+                      }
+
+                      Logger::info("ForwardingDecisionMade: lifecycle_id=" +
+                                   std::to_string(event->lifecycle_id) + " action=" + action +
+                                   " egress_ports=[" + ports + "]");
+                  });
 
     bus.publish({MessageType::SystemStart, nowMs()});
     runtimeState = RuntimeState::Running;
@@ -446,11 +496,11 @@ int main(int argc, char *argv[])
 
     runtimeState = RuntimeState::Stopping;
     Logger::warn("Stop requested. Shutting down...");
-    const auto status = statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
-    Logger::info(
-        "RuntimeStatus: state=" + stateToString(status.state) +
-        " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
-        " tick_count=" + std::to_string(status.metrics.tick_count));
+    const auto status =
+        statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+    Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
+                 " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
+                 " tick_count=" + std::to_string(status.metrics.tick_count));
     bus.publish({MessageType::SystemShutdown, nowMs()});
 
     Logger::info("EdgeNetSwitch daemon stopped.");
