@@ -312,6 +312,10 @@ int main(int argc, char *argv[])
     port4.setState(PortState::Up);
     interfaces.addPort(std::move((port4)));
 
+    SwitchPort port5(5, "eth5");
+    port5.setState(PortState::Up);
+    interfaces.addPort(std::move(port5));
+
     MacTable macTable(1024);
     SwitchForwardingEngine forwardingEngine(macTable, interfaces);
     PacketProcessor packetProcessor(bus, forwardingEngine, failureInjector);
@@ -456,6 +460,16 @@ int main(int argc, char *argv[])
                       Logger::info("ForwardingDecisionMade: lifecycle_id=" +
                                    std::to_string(event->lifecycle_id) + " action=" + action +
                                    " egress_ports=[" + ports + "]");
+                  });
+
+    bus.subscribe(MessageType::PacketProcessed,
+                  [](const Message &msg)
+                  {
+                      const Packet &p = std::get<Packet>(msg.payload);
+
+                      Logger::info(
+                          "PacketProcessed: lifecycle_id=" + std::to_string(p.lifecycle_id) +
+                          " packet_id=" + std::to_string(p.id));
                   });
 
     bus.publish({MessageType::SystemStart, nowMs()});

@@ -320,6 +320,38 @@ namespace edgenetswitch::control
                        "rate.window_ms=" + std::to_string(cfg.rate.window_ms)};
     }
 
+    static void publishSyntheticPacket(MessagingBus &bus, std::uint64_t id,
+                                       const std::string &payload, const char *source_mac_str,
+                                       const char *destination_mac_str, std::uint32_t ingress_port)
+    {
+        auto source_mac = MacAddress::fromString(source_mac_str);
+        auto destination_mac = MacAddress::fromString(destination_mac_str);
+
+        if (!source_mac || !destination_mac)
+        {
+            return;
+        }
+
+        Packet packet{};
+        packet.id = id;
+        packet.lifecycle_id = id;
+        packet.timestamp_ms = nowMs();
+        packet.payload = payload;
+        packet.payload_size = static_cast<std::uint32_t>(packet.payload.size());
+        packet.valid = true;
+
+        packet.source_mac = *source_mac;
+        packet.destination_mac = *destination_mac;
+        packet.ingress_port = ingress_port;
+
+        Message msg{};
+        msg.type = MessageType::PacketRx;
+        msg.timestamp_ms = packet.timestamp_ms;
+        msg.payload = packet;
+
+        bus.publish(std::move(msg));
+    }
+
     static ControlResponse handleSendPacket(const ControlContext &ctx, const std::string &arg)
     {
         if (!ctx.bus)
@@ -329,90 +361,54 @@ namespace edgenetswitch::control
 
         if (arg == "broadcast")
         {
-            auto source_mac = MacAddress::fromString("00:11:22:33:44:55");
-
-            auto destination_mac = MacAddress::fromString("ff:ff:ff:ff:ff:ff");
-
-            if (!source_mac || !destination_mac)
-            {
-                return makeJsonError(error::InternalError, "failed to construct mac addresses");
-            }
-
-            Packet packet{};
-            packet.id = 999;
-            packet.lifecycle_id = 999;
-            packet.timestamp_ms = nowMs();
-            packet.payload = "control-plane-broadcast";
-            packet.payload_size = static_cast<std::uint32_t>(packet.payload.size());
-
-            packet.valid = true;
-
-            packet.source_mac = *source_mac;
-            packet.destination_mac = *destination_mac;
-
-            packet.ingress_port = 2;
-
-            Message msg{};
-            msg.type = MessageType::PacketRx;
-            msg.timestamp_ms = packet.timestamp_ms;
-            msg.payload = packet;
-
-            ctx.bus->publish(std::move(msg));
+            publishSyntheticPacket(*ctx.bus, 999, "control-plane-broadcast", "00:11:22:33:44:55",
+                                   "ff:ff:ff:ff:ff:ff", 2);
 
             nlohmann::json j;
             j["result"] = "packet injected";
             j["mode"] = arg;
-            j["lifecycle_id"] = packet.lifecycle_id;
+            j["lifecycle_id"] = 999;
 
             return makeJsonSuccess(j);
         }
         else if (arg == "learn")
         {
-            Packet learn_packet{};
-            learn_packet.id = 1000;
-            learn_packet.lifecycle_id = 1000;
-            learn_packet.timestamp_ms = nowMs();
-            learn_packet.payload = "mac-learning";
-            learn_packet.valid = true;
+            publishSyntheticPacket(*ctx.bus, 1000, "mac-learning", "AA:AA:AA:AA:AA:AA",
+                                   "FF:FF:FF:FF:FF:FF", 1);
 
-            learn_packet.source_mac = MacAddress::fromString("AA:AA:AA:AA:AA:AA");
-
-            learn_packet.destination_mac = MacAddress::fromString("FF:FF:FF:FF:FF:FF");
-
-            learn_packet.ingress_port = 1;
-
-            Message msg{};
-            msg.type = MessageType::PacketRx;
-            msg.timestamp_ms = learn_packet.timestamp_ms;
-            msg.payload = learn_packet;
-
-            ctx.bus->publish(std::move(msg));
-
-            Packet unicast_packet{};
-            unicast_packet.id = 1001;
-            unicast_packet.lifecycle_id = 1001;
-            unicast_packet.timestamp_ms = nowMs();
-            unicast_packet.payload = "known-unicast";
-            unicast_packet.valid = true;
-
-            unicast_packet.source_mac = MacAddress::fromString("BB:BB:BB:BB:BB:BB");
-
-            unicast_packet.destination_mac = MacAddress::fromString("AA:AA:AA:AA:AA:AA");
-
-            unicast_packet.ingress_port = 2;
-
-            Message unicast_msg{};
-            unicast_msg.type = MessageType::PacketRx;
-            unicast_msg.timestamp_ms = unicast_packet.timestamp_ms;
-            unicast_msg.payload = unicast_packet;
-
-            ctx.bus->publish(std::move(unicast_msg));
+            publishSyntheticPacket(*ctx.bus, 1001, "known-unicast", "BB:BB:BB:BB:BB:BB",
+                                   "AA:AA:AA:AA:AA:AA", 2);
 
             nlohmann::json j;
             j["result"] = "mac learning sequence injected";
 
             return makeJsonSuccess(j);
         }
+        else if (arg == "topology-demo")
+        {
+            publishSyntheticPacket(*ctx.bus, 2000, "broadcast-discovery", "AA:AA:AA:AA:AA:AA",
+                                   "FF:FF:FF:FF:FF:FF", 1);
+
+            publishSyntheticPacket(*ctx.bus, 2001, "known-unicast-bb", "BB:BB:BB:BB:BB:BB",
+                                   "AA:AA:AA:AA:AA:AA", 2);
+
+            publishSyntheticPacket(*ctx.bus, 2002, "known-unicast-cc", "CC:CC:CC:CC:CC:CC",
+                                   "AA:AA:AA:AA:AA:AA", 3);
+
+            publishSyntheticPacket(*ctx.bus, 2003, "unknown-unicast", "DD:DD:DD:DD:DD:DD",
+                                   "EE:EE:EE:EE:EE:EE", 4);
+
+            publishSyntheticPacket(*ctx.bus, 2004, "known-unicast-ee", "EE:EE:EE:EE:EE:EE",
+                                   "CC:CC:CC:CC:CC:CC", 5);
+
+            nlohmann::json j;
+            j["result"] = "topology demo injected";
+            j["ports"] = {1, 2, 3, 4, 5};
+            j["packet_count"] = 5;
+
+            return makeJsonSuccess(j);
+        }
+
         return makeJsonError(error::InvalidRequest, "unsupported packet mode: " + arg);
     }
 
@@ -495,7 +491,7 @@ namespace edgenetswitch::control
             {"send-packet",
              {.name = "send-packet",
               .description = "inject synthetic packet into runtime",
-              .fields = {"broadcast"},
+              .fields = {"broadcast", "learn", "topology-demo"},
               .handler = handleSendPacket}},
             {"show",
              {.name = "show",
