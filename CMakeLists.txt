@@ -116,6 +116,24 @@ target_include_directories(FailureInjection
 target_compile_features(FailureInjection PUBLIC cxx_std_20)
 
 # -------------------------------------------------------
+# Switching Module
+# -------------------------------------------------------
+add_library(Switching
+    src/switching/InterfaceRegistry.cpp
+    src/switching/MacAddress.cpp
+    src/switching/MacTable.cpp
+    src/switching/SwitchPort.cpp
+    src/switching/SwitchForwardingEngine.cpp
+)
+
+target_include_directories(Switching
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(Switching PUBLIC cxx_std_20)
+
+# -------------------------------------------------------
 # Daemon Executable
 # -------------------------------------------------------
 add_executable(EdgeNetSwitchDaemon
@@ -138,6 +156,7 @@ target_link_libraries(EdgeNetSwitchDaemon
         Telemetry
         HealthMonitor
         FailureInjection
+        Switching
 )
 
 target_include_directories(EdgeNetSwitchDaemon
@@ -295,6 +314,7 @@ if(BUILD_TESTING)
         PRIVATE
             MessagingBus
             FailureInjection
+            Switching
             Catch2::Catch2WithMain
     )
 
@@ -322,6 +342,7 @@ if(BUILD_TESTING)
         PRIVATE
             MessagingBus
             FailureInjection
+            Switching
             Catch2::Catch2WithMain
     )
 
@@ -466,12 +487,37 @@ if(BUILD_TESTING)
             Telemetry
             MessagingBus
             FailureInjection
+            Switching
             Catch2::Catch2WithMain
     )
 
     target_include_directories(PacketPipelineTests PRIVATE include)
 
     add_test(NAME PacketPipelineTests COMMAND PacketPipelineTests)
+
+endif()
+
+# -------------------------------------------------------
+# Unit Tests for packet forwarding runtime integration
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(PacketForwardingRuntimeTests
+        tests/packet_forwarding_runtime_tests.cpp
+        src/packet/PacketProcessor.cpp
+    )
+
+    target_link_libraries(PacketForwardingRuntimeTests
+        PRIVATE
+            MessagingBus
+            FailureInjection
+            Switching
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(PacketForwardingRuntimeTests PRIVATE include)
+
+    add_test(NAME PacketForwardingRuntimeTests COMMAND PacketForwardingRuntimeTests)
 
 endif()
 

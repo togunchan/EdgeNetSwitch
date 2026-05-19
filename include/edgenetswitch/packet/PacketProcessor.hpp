@@ -1,14 +1,15 @@
 #pragma once
 
-#include "edgenetswitch/packet/Packet.hpp"
-#include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
-#include <cstddef>
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
+#include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
+#include <atomic>
 #include <condition_variable>
-#include <thread>
+#include <cstddef>
 #include <deque>
 #include <mutex>
-#include <atomic>
+#include <thread>
 
 namespace edgenetswitch
 {
@@ -17,10 +18,14 @@ namespace edgenetswitch
     public:
         explicit PacketProcessor(MessagingBus &bus);
         explicit PacketProcessor(MessagingBus &bus, failure::FailureInjector injector);
+        explicit PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine);
+        PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine,
+                        failure::FailureInjector injector);
         ~PacketProcessor();
         void processLoop();
         void processPacket(Packet processedPacket);
-        void handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure, std::uint64_t now_ms);
+        void handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure,
+                                   std::uint64_t now_ms);
 
     private:
         std::deque<Packet> queue_;
@@ -32,5 +37,6 @@ namespace edgenetswitch
         static constexpr std::size_t MAX_PAYLOAD_SIZE = 512;
         MessagingBus &bus_;
         failure::FailureInjector injector_;
+        SwitchForwardingEngine *forwarding_engine_{nullptr};
     };
-}
+} // namespace edgenetswitch

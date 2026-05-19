@@ -1,5 +1,8 @@
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/switching/ForwardingEvent.hpp"
+#include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 
 #include <utility>
 
@@ -10,58 +13,77 @@ namespace edgenetswitch
     {
     }
 
-    PacketProcessor::PacketProcessor(MessagingBus &bus, failure::FailureInjector injector) : bus_(bus), injector_(std::move(injector))
+    PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine)
+        : PacketProcessor(bus, forwarding_engine,
+                          failure::FailureInjector{failure::FailureConfig{}})
     {
-        bus_.subscribe(MessageType::PacketRx, [this](const Message &msg)
-                       {
-                           const Packet *packet = std::get_if<Packet>(&msg.payload);
+    }
 
-                           if (!packet)
-                               return;
-                           const auto now_ms = nowMs();
-                           auto failure = injector_.inject(*packet, now_ms);
+    PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine,
+                                     failure::FailureInjector injector)
+        : PacketProcessor(bus, std::move(injector))
+    {
+        forwarding_engine_ = &forwarding_engine;
+    }
 
-                           if(failure.is_terminal){
-                               handleInjectedFailure(*packet, failure, now_ms);
-                               return;
-                           }
+    PacketProcessor::PacketProcessor(MessagingBus &bus, failure::FailureInjector injector)
+        : bus_(bus), injector_(std::move(injector))
+    {
+        bus_.subscribe(
+            MessageType::PacketRx,
+            [this](const Message &msg)
+            {
+                const Packet *packet = std::get_if<Packet>(&msg.payload);
 
-                           if (failure.type == failure::FailureType::ArtificialDelay && failure.delay_ms > 0.0)
-                           {
-                               std::this_thread::sleep_for(
-                                   std::chrono::milliseconds(static_cast<int>(failure.delay_ms)));
-                           }
+                if (!packet)
+                    return;
+                const auto now_ms = nowMs();
+                auto failure = injector_.inject(*packet, now_ms);
 
-                           bool shouldDrop = false;
-                           {
-                               std::lock_guard<std::mutex> lock(queue_mutex_);
-                               if (queue_.size() >= MAX_QUEUE_SIZE)
-                               {
-                                   shouldDrop = true;
-                               }
-                               else {
-                                   queue_.push_back(*packet);
-                               }
-                           }
+                if (failure.is_terminal)
+                {
+                    handleInjectedFailure(*packet, failure, now_ms);
+                    return;
+                }
 
-                           if(shouldDrop){
-                               Message dropMsg{};
-                               dropMsg.type = MessageType::PacketDropped;
-                               dropMsg.timestamp_ms = now_ms;
-                               dropMsg.payload = PacketDropped{
-                                   .reason = PacketDropReason::QueueOverflow,
-                                   .timestamp_ms = dropMsg.timestamp_ms,
-                                   .packet_id = packet->id,
-                                   .lifecycle_id = packet->lifecycle_id};
+                if (failure.type == failure::FailureType::ArtificialDelay && failure.delay_ms > 0.0)
+                {
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(static_cast<int>(failure.delay_ms)));
+                }
 
-                               bus_.publish(std::move(dropMsg));
-                           }
-                           else {
-                           cv_.notify_one();
-                           } });
+                bool shouldDrop = false;
+                {
+                    std::lock_guard<std::mutex> lock(queue_mutex_);
+                    if (queue_.size() >= MAX_QUEUE_SIZE)
+                    {
+                        shouldDrop = true;
+                    }
+                    else
+                    {
+                        queue_.push_back(*packet);
+                    }
+                }
 
-        worker_ = std::thread([this]()
-                              { processLoop(); });
+                if (shouldDrop)
+                {
+                    Message dropMsg{};
+                    dropMsg.type = MessageType::PacketDropped;
+                    dropMsg.timestamp_ms = now_ms;
+                    dropMsg.payload = PacketDropped{.reason = PacketDropReason::QueueOverflow,
+                                                    .timestamp_ms = dropMsg.timestamp_ms,
+                                                    .packet_id = packet->id,
+                                                    .lifecycle_id = packet->lifecycle_id};
+
+                    bus_.publish(std::move(dropMsg));
+                }
+                else
+                {
+                    cv_.notify_one();
+                }
+            });
+
+        worker_ = std::thread([this]() { processLoop(); });
     }
 
     PacketProcessor::~PacketProcessor()
@@ -81,10 +103,12 @@ namespace edgenetswitch
             {
                 std::unique_lock<std::mutex> lock(queue_mutex_);
 
-                cv_.wait(lock, [this]
-                         { 
-                            // Continue waiting only while queue is empty AND system is running.
-                            return !queue_.empty() || !running_; });
+                cv_.wait(lock,
+                         [this]
+                         {
+                             // Continue waiting only while queue is empty AND system is running.
+                             return !queue_.empty() || !running_;
+                         });
 
                 if (!running_ && queue_.empty())
                     break;
@@ -103,11 +127,10 @@ namespace edgenetswitch
             Message dropMsg{};
             dropMsg.type = MessageType::PacketDropped;
             dropMsg.timestamp_ms = processedPacket.timestamp_ms;
-            dropMsg.payload = PacketDropped{
-                .reason = PacketDropReason::ValidationError,
-                .timestamp_ms = processedPacket.timestamp_ms,
-                .packet_id = processedPacket.id,
-                .lifecycle_id = processedPacket.lifecycle_id};
+            dropMsg.payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                            .timestamp_ms = processedPacket.timestamp_ms,
+                                            .packet_id = processedPacket.id,
+                                            .lifecycle_id = processedPacket.lifecycle_id};
 
             bus_.publish(std::move(dropMsg));
             return;
@@ -118,21 +141,33 @@ namespace edgenetswitch
             Message dropMsg{};
             dropMsg.type = MessageType::PacketDropped;
             dropMsg.timestamp_ms = nowMs();
-            dropMsg.payload = PacketDropped{
-                .reason = PacketDropReason::ValidationError,
-                .timestamp_ms = dropMsg.timestamp_ms,
-                .packet_id = processedPacket.id,
-                .lifecycle_id = processedPacket.lifecycle_id};
+            dropMsg.payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                            .timestamp_ms = dropMsg.timestamp_ms,
+                                            .packet_id = processedPacket.id,
+                                            .lifecycle_id = processedPacket.lifecycle_id};
 
             bus_.publish(std::move(dropMsg));
             return;
         }
 
-        processedPacket.payload_size =
-            static_cast<std::uint32_t>(processedPacket.payload.size());
+        processedPacket.payload_size = static_cast<std::uint32_t>(processedPacket.payload.size());
 
-        // Simulate processing cost (CPU / parsing / workload) to test pipeline behavior under load
-        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (forwarding_engine_ && processedPacket.ingress_port)
+        {
+            auto decision = forwarding_engine_->processPacket(
+                processedPacket, *processedPacket.ingress_port, processedPacket.timestamp_ms);
+
+            Message forwarding{};
+            forwarding.type = MessageType::ForwardingDecisionMade;
+            forwarding.timestamp_ms = processedPacket.timestamp_ms;
+            forwarding.payload = ForwardingEvent{.lifecycle_id = processedPacket.lifecycle_id,
+                                                 .action = decision.action,
+                                                 .egress_ports = decision.egress_ports};
+            bus_.publish(std::move(forwarding));
+        }
+
+        // Simulate processing cost (CPU / parsing / workload) to test pipeline behavior under
+        // load std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
         Message processed{};
         processed.type = MessageType::PacketProcessed;
@@ -142,7 +177,9 @@ namespace edgenetswitch
         bus_.publish(processed);
     }
 
-    void PacketProcessor::handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure, std::uint64_t now_ms)
+    void PacketProcessor::handleInjectedFailure(const Packet &pkt,
+                                                const failure::FailureResult &failure,
+                                                std::uint64_t now_ms)
     {
         PacketDropReason reason;
 
@@ -168,11 +205,10 @@ namespace edgenetswitch
         Message dropMsg{};
         dropMsg.type = MessageType::PacketDropped;
         dropMsg.timestamp_ms = now_ms;
-        dropMsg.payload = PacketDropped{
-            .reason = reason,
-            .timestamp_ms = dropMsg.timestamp_ms,
-            .packet_id = pkt.id,
-            .lifecycle_id = pkt.lifecycle_id};
+        dropMsg.payload = PacketDropped{.reason = reason,
+                                        .timestamp_ms = dropMsg.timestamp_ms,
+                                        .packet_id = pkt.id,
+                                        .lifecycle_id = pkt.lifecycle_id};
 
         bus_.publish(std::move(dropMsg));
     }

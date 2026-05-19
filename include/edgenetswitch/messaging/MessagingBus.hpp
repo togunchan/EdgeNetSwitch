@@ -8,6 +8,7 @@
 #include <variant>
 
 #include "edgenetswitch/packet/Packet.hpp"
+#include "edgenetswitch/switching/ForwardingEvent.hpp"
 
 namespace edgenetswitch
 {
@@ -23,7 +24,8 @@ namespace edgenetswitch
         Health,
         PacketRx,
         PacketProcessed,
-        PacketDropped
+        PacketDropped,
+        ForwardingDecisionMade
     };
 
     struct TelemetryData
@@ -49,7 +51,7 @@ namespace edgenetswitch
                                      TelemetryData,
                                      HealthStatus,
                                      Packet,
-                                     PacketDropped>;
+                                     PacketDropped,ForwardingEvent>;
         Payload payload{};
     };
 
