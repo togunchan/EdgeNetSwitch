@@ -4,9 +4,16 @@
 
 Each packet entering the system follows a strictly defined lifecycle:
 
-`PacketRx → PacketProcessed | PacketDropped`
+`PacketRx → PacketDropped`
 
-Each packet is expected to reach exactly one terminal outcome under normal operation.
+or:
+
+`PacketRx → [ForwardingDecisionMade] → PacketProcessed`
+
+Each packet lifecycle must converge to exactly one terminal outcome.
+`ForwardingDecisionMade` is optional and non-terminal; it is emitted only when a
+validated packet carries an ingress port and the packet processor has access to
+the forwarding engine.
 
 Lifecycle accounting is keyed by `lifecycle_id`, the runtime-owned execution
 identity for one observed packet lifecycle. `packet.id` is payload identity and
@@ -33,7 +40,7 @@ When a `PacketRx` message is received:
 
 ### 2. Processing (Worker Thread)
 
-Packets in the queue are processed asynchronously:
+Packets in the queue are processed asynchronously by a dedicated worker owned by PacketProcessor.:
 
 - If the packet is invalid:
   - `payload.size() > MAX_PAYLOAD_SIZE`
@@ -43,6 +50,8 @@ Packets in the queue are processed asynchronously:
 
 - Otherwise:
   - The packet is considered valid
+  - If forwarding context is present, `ForwardingDecisionMade` is published
+    before the processed event
   - `PacketProcessed` is published
 
 ---
@@ -55,6 +64,8 @@ A packet reaches a terminal state when one of the following is emitted:
 - `PacketDropped`
 
 Each terminal event represents the final outcome of a packet.
+`ForwardingDecisionMade` does not complete a lifecycle and is not counted as a
+terminal event.
 
 ### Accounting
 

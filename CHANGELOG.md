@@ -15,8 +15,38 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.8.7` elevates the packet path from observable behavior to a formally auditable correctness model with lifecycle-based accounting.
 - `v1.8.8` adds deterministic failure injection on top of that lifecycle model, with explicit drop-reason mapping and overload validation.
 - `v1.8.9` closes the replay determinism architecture by validating replayed executions against observable terminal history.
+- `v1.9.0` integrates deterministic switching semantics into the runtime path, connecting control-plane packet injection, MAC learning, forwarding decisions, and MAC table inspection through the existing event architecture.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.0] - Switching Runtime Integration
+
+### Added
+- Added the switching domain model: `MacAddress`, `MacTable`, `SwitchPort`, `InterfaceRegistry`, `SwitchForwardingEngine`, `ForwardingDecision`, and `ForwardingEvent`.
+- Added deterministic MAC learning and forwarding decision behavior for broadcast, unknown unicast, known unicast, and down-port destinations.
+- Added `ForwardingDecisionMade` as an observable runtime event emitted by `PacketProcessor` before `PacketProcessed` when a valid packet carries an ingress port.
+- Added synthetic control-plane packet injection through `send-packet:broadcast` and `send-packet:learn`, using the same UNIX socket, dispatch, `MessagingBus`, and packet processor path as normal ingress.
+- Added `show:mac-table` control-plane inspection for the forwarding engine's learned MAC table.
+- Added deterministic multi-port daemon initialization groundwork through `InterfaceRegistry` and four initial `Up` switch ports.
+
+### Changed
+- Promoted switching from an isolated model into the packet runtime path: validated packets with ingress-port metadata now pass through the forwarding engine before their terminal processed event is published.
+- Extended `Packet` with source MAC, destination MAC, and optional ingress port metadata so the packet lifecycle can carry switching context without replacing existing payload identity semantics.
+- Extended the control context from read-only snapshot/config access to controlled runtime interaction: command handlers can publish synthetic packet ingress and inspect switching state while still entering through `dispatchControlRequest()`.
+- Made forwarding decisions observable as first-class events rather than hidden side effects. `ForwardingDecisionMade` is emitted before `PacketProcessed`, preserving a clear decision-before-terminal ordering for runtime diagnostics and tests.
+- Added a shared `Switching` build target so daemon and test binaries link the same switching implementation.
+
+### Operational Behavior
+- `send-packet:broadcast` injects a synthetic broadcast packet into `MessageType::PacketRx`, causing the normal packet processor to validate, learn the source MAC, compute a flood decision, publish `ForwardingDecisionMade`, and then publish `PacketProcessed`.
+- `send-packet:learn` injects a deterministic two-packet sequence that first learns a source MAC on one port, then sends known-unicast traffic toward that learned destination.
+- `show:mac-table` exposes learned entries as control-plane text output, including table size, MAC address, port ID, and last-seen tick.
+- Broadcast and unknown-unicast flood outputs are deterministic because interface state is stored by ordered port ID.
+
+### Engineering Notes
+- This milestone connects the control plane to the data-plane simulation without creating a private shortcut: CLI commands still travel through `CLI -> UNIX socket -> dispatchControlRequest -> dispatchV12 -> command handler -> MessagingBus -> PacketProcessor -> SwitchForwardingEngine`.
+- The switching engine remains an in-process decision component. It does not transmit frames, drive a NIC, implement VLAN/STP/ACL behavior, or perform real Ethernet forwarding.
+- MAC learning is deterministic and explicit, making it suitable for runtime tests, replay-oriented reasoning, and control-plane inspection.
+- Forwarding observability is intentionally event-based. Consumers can subscribe to decisions without coupling to the forwarding engine or packet processor internals.
 
 ## [v1.8.9] - Replay Determinism and Outcome Validation
 

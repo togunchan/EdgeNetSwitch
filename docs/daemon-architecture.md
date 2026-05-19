@@ -61,16 +61,22 @@ The daemon is composed of independent subsystems:
 - Logger  
 - MessagingBus  
 - Configuration Manager  
-- Routing Engine  
+- Switching Decision Engine
 - Telemetry Engine  
 - Health Monitor  
 - CLI / Control Interface  
+
+Runtime packet injection from the control interface is intentionally narrow:
+commands publish synthetic `PacketRx` events onto `MessagingBus`, then the
+normal packet processor and switching decision path handle validation, MAC
+learning, forwarding decision publication, and terminal packet events.
 
 Each subsystem:
 
 - Owns its internal state  
 - Avoids direct dependencies on other subsystems  
-- Communicates exclusively through MessagingBus  
+- Uses `MessagingBus` for runtime events and explicit context objects for
+  narrow inspection boundaries
 
 This structure enforces loose coupling and predictable system behavior.
 
@@ -142,23 +148,27 @@ This immutability simplifies reasoning, testing, and concurrency.
 ### Publishers
 
 - Any subsystem may publish messages  
-- Publishing is non-blocking  
-- Publishers are unaware of subscribers  
+- Publishing is synchronous within the current execution context
+- Message publication returns only after registered callbacks for that message
+  have completed
+- Publishers are unaware of subscribers
 
 ### Subscribers
 
 - Subsystems register callback functions  
 - Multiple subscribers per message type are allowed  
-- Callbacks execute in a controlled context  
+- Callbacks execute on the publisher's thread for that `publish()` call
+- Subscribers should avoid hidden blocking unless the caller explicitly owns
+  that latency
 
 A single message may trigger:
 
 - Logging  
 - Telemetry updates  
-- Routing decisions  
+- Switching decisions
 - Health checks  
 
-simultaneously.
+in deterministic subscription order within the current execution context.
 
 ---
 
@@ -168,21 +178,28 @@ MessagingBus guarantees:
 
 - Thread-safe `publish` and `subscribe` operations  
 - Internal synchronization using standard C++ primitives  
-- Best-effort ordering per message type  
+- Synchronous callback execution on the publishing thread
+- Deterministic dispatch ordering for a given publication context
 
 Initial implementation uses:
 
 - `std::mutex`  
 - `std::lock_guard`  
 
-Future versions may introduce:
+Asynchronous behavior exists only at explicitly bounded queue handoff points,
+such as packet processing admission or telemetry export. Those queues are owned
+by the receiving subsystem, not by `MessagingBus`.
 
-- Worker threads  
-- Message queues  
-- Lock-free data structures  
-- Priority-aware dispatching  
+Future versions may introduce additional concurrency only where it is
+operationally justified:
+
+- Bounded handoff queues with explicit capacity and drop semantics
+- Subscriber-side workers owned by specific subsystems
+- Priority-aware runtime paths with documented ordering guarantees
+- Instrumentation for callback latency and queue pressure
 
 The current design favors clarity and correctness over premature optimization.
+It is not intended to evolve into a general-purpose asynchronous broker.
 
 ---
 
@@ -193,7 +210,8 @@ MessagingBus lifecycle is tied to the daemon lifecycle:
 1. Constructed during daemon startup  
 2. Subsystems register subscriptions  
 3. Runtime message flow begins  
-4. Graceful shutdown drains and terminates cleanly  
+4. Graceful shutdown stops producers and lets owning subsystems terminate
+   their bounded workers explicitly
 
 MessagingBus contains no global state and can be instantiated per daemon instance.
 
@@ -219,9 +237,11 @@ MessagingBus serves as a stable core for future extensions:
 - CLI command routing  
 - Telemetry streaming  
 - Fault injection mechanisms  
-- Network message injection  
+- Synthetic packet injection and forwarding observability
 
 The core bus remains unchanged while adapters evolve around it.
+New adapters must preserve deterministic ownership, explicit concurrency
+boundaries, and observable lifecycle semantics.
 
 ---
 

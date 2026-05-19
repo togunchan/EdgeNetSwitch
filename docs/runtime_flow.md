@@ -3,7 +3,7 @@
 ## Program entry point (`src/daemon/main.cpp`)
 - Installs `SIGINT`/`SIGTERM` handlers that flip an atomic flag, letting the main loop exit cooperatively.
 - Loads `Config` from `config/edgenetswitch.json`, then initializes the `Logger`.
-- Builds the shared `MessagingBus`, then constructs `Telemetry` and `HealthMonitor` (timeout set to 500 ms).
+- Builds the shared `MessagingBus`, then constructs `Telemetry`, `HealthMonitor`, the switching registry/MAC table, `SwitchForwardingEngine`, and `PacketProcessor`.
 - Registers bus subscribers for `SystemStart`, `SystemShutdown`, `Telemetry`, and `HealthStatus`; the `Telemetry` subscriber also forwards a heartbeat into `HealthMonitor`.
 - Publishes `SystemStart` once the bus is wired, then enters the main loop.
 
@@ -14,7 +14,7 @@
 
 ## Message structure and payload concept
 - Each `Message` carries a `MessageType`, a `timestamp_ms`, and a variant payload.
-- Payloads include `TelemetryData` (uptime, tick counter, timestamp), `HealthStatus` (uptime, last heartbeat, alive flag), packet lifecycle data (`Packet`), and terminal drop data (`PacketDropped`); `std::monostate` represents an empty payload.
+- Payloads include `TelemetryData` (uptime, tick counter, timestamp), `HealthStatus` (uptime, last heartbeat, alive flag), packet lifecycle data (`Packet`), terminal drop data (`PacketDropped`), and forwarding data (`ForwardingEvent`); `std::monostate` represents an empty payload.
 - Small illustration:
 ```cpp
 struct Message {
@@ -24,7 +24,8 @@ struct Message {
                                  TelemetryData,
                                  HealthStatus,
                                  Packet,
-                                 PacketDropped>;
+                                 PacketDropped,
+                                 ForwardingEvent>;
     Payload payload{};
 };
 ```
@@ -61,6 +62,7 @@ bus_.publish({MessageType::Telemetry, data.timestamp_ms, data});
 - Terminal injected failures publish `PacketDropped` immediately; non-terminal injection, including `ArtificialDelay`, returns to the normal admission path.
 - Queue admission either enqueues the packet for asynchronous processing or publishes `PacketDropped(reason = QueueOverflow)`.
 - Worker-side validation and processing publish exactly one terminal event: `PacketProcessed` or `PacketDropped`.
+- If a validated packet has an ingress port and the processor owns a forwarding engine, the worker computes a switching decision and publishes `ForwardingDecisionMade` before `PacketProcessed`.
 - `PacketStats` observes `PacketRx`, `PacketProcessed`, and `PacketDropped` to maintain lifecycle-aware accounting.
 - `ReplayRecorder` observes `PacketRx` for ingress-only replay capture.
 - `ReplayOutcomeCollector` observes `PacketProcessed` and `PacketDropped` for terminal observable validation.
@@ -74,10 +76,12 @@ flowchart LR
     FailureInjector -->|terminal| PacketDropped
     FailureInjector -->|non-terminal| QueueAdmission
 
-    QueueAdmission --> PacketProcessed
+    QueueAdmission -->|without switching context| PacketProcessed
     QueueAdmission --> QueueOverflowDrop
 
     QueueOverflowDrop --> PacketDropped
+    QueueAdmission -->|with switching context| ForwardingDecisionMade
+    ForwardingDecisionMade --> PacketProcessed
 
     PacketProcessed --> PacketStats
     PacketDropped --> PacketStats
@@ -90,6 +94,15 @@ flowchart LR
 ```
 
 Terminal drop reasons remain causal. Failure injection can produce parser, validation, simulated-loss, or processing-error drops; overload remains represented separately as `QueueOverflow`.
+
+Forwarding decisions are non-terminal observability events. They describe the switching decision associated with a packet lifecycle, but packet lifecycle completion remains defined only by `PacketProcessed` or `PacketDropped`.
+
+## Control-plane packet injection and switching inspection
+- Control commands enter through the UNIX socket wire format `1.2|<command>` and are dispatched through `dispatchControlRequest()` and `dispatchV12()`.
+- `send-packet:broadcast` and `send-packet:learn` publish synthetic `PacketRx` messages onto the same `MessagingBus` path used by UDP and replay ingress.
+- Synthetic packets carry MAC metadata and ingress ports so the normal `PacketProcessor` and `SwitchForwardingEngine` path performs MAC learning and forwarding decision publication.
+- `show:mac-table` inspects the forwarding engine's MAC table through the control context and returns deterministic learned-entry output.
+- The control plane does not bypass the runtime path and does not transmit packets directly.
 
 ## Replay validation flow
 - `ReplayRecord` stores ordered ingress: a sequence number and the `Packet` observed on `PacketRx`.
@@ -117,8 +130,8 @@ Lifecycle-based failure replay uses deterministic `FailureInjector` rules keyed 
 ## Why this architecture is event-driven
 - The bus decouples producers (e.g., `Telemetry`, `HealthMonitor`, lifecycle emitters) from consumers (loggers or future modules), so modules evolve independently.
 - Messages carry time-stamped payloads, keeping state changes observable without shared mutable state.
-- Event hooks (`SystemStart`, `Telemetry`, `HealthStatus`, `PacketRx`, `PacketProcessed`, `PacketDropped`, `SystemShutdown`) create predictable join points for diagnostics or future control components.
-- Copying subscriber lists before invocation prevents handler-side blocking from stalling publishers, improving resilience in a long-running daemon.
+- Event hooks (`SystemStart`, `Telemetry`, `HealthStatus`, `PacketRx`, `ForwardingDecisionMade`, `PacketProcessed`, `PacketDropped`, `SystemShutdown`) create predictable join points for diagnostics or future control components.
+- Copying subscriber lists before invocation avoids holding internal subscription locks during callback execution and prevents subscriber mutation from invalidating dispatch traversal.
 
 ## How runtime behavior maps to unit tests
 - `tests/messagingbus_tests.cpp` verifies single and multiple subscribers receive the correct `MessageType` events, matching the logging subscriptions in `main`.
@@ -126,5 +139,6 @@ Lifecycle-based failure replay uses deterministic `FailureInjector` rules keyed 
 - `tests/health_monitor_tests.cpp` cover initial alive publication, heartbeat handling, and timeout to not-alive, aligning with the runtime health checks.
 - `tests/health_monitor_transition_tests.cpp` ensure `HealthMonitor` publishes only on alive/not-alive transitions, validating the spam-prevention behavior relied upon by runtime logging.
 - `tests/packet_pipeline_tests.cpp` validates packet lifecycle convergence, failure-injection scheduling, queue-overflow behavior, and `PacketStats` terminal accounting.
+- `tests/packet_forwarding_runtime_tests.cpp` validates forwarding decision emission, decision-before-processed ordering, broadcast flood behavior, known-unicast forwarding, and down-port drops through the runtime integration path.
 - `tests/replay_equivalence_tests.cpp` validates replay equivalence against aggregate lifecycle metrics.
 - `tests/replay_outcome_equivalence_tests.cpp` validates replay equivalence against ordered terminal observable history, including deterministic failure replay.

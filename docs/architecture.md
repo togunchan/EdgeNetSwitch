@@ -48,7 +48,7 @@ These may be considered for future versions.
 
 ## Layered Architecture
 
-EdgeNetSwitch is structured into four major layers.
+EdgeNetSwitch is structured into multiple major layers.
 This layered design ensures clean separation of concerns and modular extensibility.
 
 ---
@@ -85,8 +85,9 @@ The central logic of EdgeNetSwitch:
 - Configuration loader (JSON)
 - MessagingBus (pub/sub event system)
 - Telemetry engine (metrics, counters, health)
-- Routing & switching engine (packet simulation)
+- Switching decision engine with deterministic MAC learning
 - Packet lifecycle accounting with runtime-owned `lifecycle_id`
+- Forwarding decision observability through runtime events
 - Deterministic failure injection and replay validation
 - System health monitoring
 - Graceful shutdown & signal handling
@@ -151,7 +152,7 @@ This layer improves usability, testing, and developer experience.
             |   User-Space Daemon  |
             |  - Logger            |
             |  - MessagingBus      |
-            |  - Routing Engine    |
+            |  - Switching Engine  |
             |  - Telemetry Engine  |
             |  - Replay Validation |
             +----------+-----------+
@@ -219,6 +220,23 @@ controlled.
 The resulting guarantee is narrow and explicit: given the same ingress stream
 and deterministic failure policy, replayed execution must produce the same
 observable terminal history.
+
+## Switching Runtime Model
+
+The daemon includes an in-process switching decision layer. Packets that carry
+source MAC, destination MAC, and ingress-port metadata can be evaluated by
+`SwitchForwardingEngine` after worker-side validation and before
+`PacketProcessed` is published.
+
+Switching decisions are observable through `ForwardingDecisionMade` events.
+These events expose the packet lifecycle ID, forwarding action, and egress port
+set. They do not transmit packets and do not complete a packet lifecycle.
+
+The control plane can inject deterministic synthetic packets through
+`send-packet:broadcast` and `send-packet:learn`. Those commands still enter
+through the UNIX socket dispatch path and publish `PacketRx` into
+`MessagingBus`; they do not bypass the packet processor or call the forwarding
+engine directly. `show:mac-table` provides inspection of learned MAC entries.
 
 ---
 

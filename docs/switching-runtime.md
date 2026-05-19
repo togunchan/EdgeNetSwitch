@@ -4,9 +4,10 @@ This document describes the current v1.9 switching subsystem behavior. It covers
 the runtime model implemented by `SwitchForwardingEngine`, `MacTable`,
 `InterfaceRegistry`, `SwitchPort`, and `ForwardingDecision`.
 
-The switching subsystem is currently an in-process decision layer. It computes a
-forwarding decision from a parsed packet, an ingress port, the current MAC table,
-and the registered port states. It does not transmit packets itself.
+The switching subsystem is currently an in-process decision layer integrated
+with the packet processor runtime path. It computes a forwarding decision from a
+parsed packet, an ingress port, the current MAC table, and the registered port
+states. It does not transmit packets itself.
 
 ## Responsibilities
 
@@ -28,9 +29,55 @@ supplies the packet, ingress port, and logical tick. The engine returns one of:
 The returned `egress_ports` vector is the full output of the forwarding
 decision.
 
+## Runtime Integration
+
+`PacketProcessor` optionally owns access to a `SwitchForwardingEngine`. After
+worker-side validation and before publishing `PacketProcessed`, it invokes the
+engine when the packet contains an `ingress_port`.
+
+The processor publishes:
+
+```text
+ForwardingDecisionMade -> PacketProcessed
+```
+
+for successfully processed packets that have switching context. Packets without
+an ingress port still complete through the normal packet lifecycle, but no
+forwarding event is emitted. Validation failures and injected terminal failures
+remain drop outcomes and do not produce forwarding decisions.
+
+`ForwardingDecisionMade` carries:
+
+```text
+lifecycle_id
+action
+egress_ports
+```
+
+This makes forwarding observable without making the forwarding engine a packet
+transmitter or coupling observers to processor internals.
+
+## Control-plane Interaction
+
+The control plane can publish synthetic packet ingress and inspect learned
+switching state through the normal dispatch path:
+
+```text
+CLI -> UNIX socket -> dispatchControlRequest -> dispatchV12 -> handler
+```
+
+`send-packet:broadcast` injects a deterministic broadcast packet as `PacketRx`.
+`send-packet:learn` injects a deterministic learning sequence. Both commands use
+`MessagingBus` and the normal packet processor path, so MAC learning and
+forwarding decisions occur in the same runtime path as other packet ingress.
+
+`show:mac-table` reads the forwarding engine's MAC table snapshot and returns
+deterministic text output. It is an inspection command; it does not mutate the
+table or age entries.
+
 ## Forwarding Semantics
 
-Packets without both a source MAC and destination MAC are dropped immediately.
+Packets without both MAC fields produce a `Drop` forwarding decision immediately.
 No MAC learning occurs for these packets.
 
 For packets with both MAC addresses, the source MAC is learned on the ingress
@@ -66,8 +113,7 @@ Destination: 00:11:22:33:44:02
 Decision: Drop
 ```
 
-Current known-unicast behavior does not suppress forwarding back to the ingress
-port. If a destination MAC is learned on the same port as the incoming packet,
+Real Ethernet switches commonly suppress same-port forwarding for known-unicast traffic, but the current implementation intentionally leaves this behavior explicit and observable. If a destination MAC is learned on the same port as the incoming packet,
 the engine returns `ForwardToPorts` with that same port.
 
 ## MAC Learning
@@ -191,8 +237,9 @@ or forwarding decision based on the rest of the registry state.
 
 ## Current Limitations
 
-- The switching engine is a decision component; it is not currently wired into
-  the daemon packet-processing path as a packet transmitter.
+- The switching engine is a decision component; it is wired into the daemon
+  packet-processing path for learning and decision publication, but not as a
+  packet transmitter.
 - There is no VLAN, STP, link aggregation, multicast group, ACL, QoS, or routing
   behavior.
 - Known-unicast traffic learned on the ingress port is forwarded back to that

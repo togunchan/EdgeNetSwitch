@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.8.9-orange)
+![Version](https://img.shields.io/badge/version-v1.9.0-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -16,7 +16,7 @@ That makes packet loss, shutdown races, observability gaps, and lifecycle accoun
 
 ## Solution
 
-EdgeNetSwitch isolates the runtime as a deterministic execution environment with explicit control over concurrency, timing, and system behavior. It models packet ingress, processing, telemetry, health, control-plane inspection, overload behavior, and shutdown sequencing inside a controlled C++20 daemon.
+EdgeNetSwitch isolates the runtime as a deterministic execution environment with explicit control over concurrency, timing, and system behavior. It models packet ingress, switching decisions, MAC learning, telemetry, health, control-plane inspection, overload behavior, and shutdown sequencing inside a controlled C++20 daemon.
 
 The system enables early validation of:
 - event flow through the runtime
@@ -24,6 +24,7 @@ The system enables early validation of:
 - overload and backpressure behavior
 - lifecycle correctness guarantees
 - replay-verifiable deterministic behavior
+- deterministic MAC learning and forwarding decisions
 - observability without timing side effects
 
 ## Key Engineering Highlights
@@ -35,8 +36,11 @@ The system enables early validation of:
 - Auditable packet invariants: `terminal_events == processed_packets + total_drops` and `ingress_packets == terminal_events + pending_terminal_events`.
 - Replay-verifiable lifecycle accounting: replay records capture ingress only, and runtime outcomes are validated through observable terminal history.
 - Lifecycle-keyed deterministic failure replay: injected faults can be reproduced without depending on externally supplied packet IDs.
+- Switching runtime integration: packets carrying MAC metadata and ingress ports produce deterministic drop, flood, or known-unicast forwarding decisions.
+- Control-plane packet injection: synthetic packet commands enter through the UNIX socket, command dispatch, `MessagingBus`, and normal packet processor path.
+- Forwarding observability: `ForwardingDecisionMade` events expose runtime decisions before packets reach their terminal processed event.
 - Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
-- Observability-first design: telemetry export runs off the runtime path, and the read-only control plane returns structured JSON snapshots.
+- Observability-first design: telemetry export runs off the runtime path, and the control plane exposes structured snapshots plus narrow synthetic runtime probes.
 - Production-grade lifecycle management: RAII cleanup, coordinated shutdown, and thread ownership discipline.
 
 ## Architecture Overview
@@ -51,6 +55,8 @@ flowchart LR
     subgraph Core["Deterministic Runtime Core"]
         Tick["Deterministic Tick Loop (Execution Owner)"] --> Bus["MessagingBus"]
         Admission --> Bus
+        Bus --> Switching["SwitchForwardingEngine"]
+        Switching --> Decisions["ForwardingDecisionMade"]
         Bus --> Outcomes["Packet Outcomes"]
         Bus --> State["Runtime State"]
     end
@@ -63,8 +69,11 @@ flowchart LR
     end
 
     subgraph Control["Control Plane"]
-        Operator["CLI / UNIX Socket"] --> Queries["Read-Only Queries"]
+        Operator["CLI / UNIX Socket"] --> Queries["Inspection Commands"]
+        Operator --> Injection["Synthetic Packet Injection"]
         Queries -. snapshots .-> State
+        Queries -. mac table .-> Switching
+        Injection -. PacketRx .-> Bus
     end
 
     Bus -. PacketRx .-> Recorder
@@ -79,7 +88,7 @@ flowchart LR
 
 The main tradeoff is intentional: the runtime prioritizes deterministic execution and explicit loss over hidden blocking, unbounded buffering, or timing side effects from observability paths.
 
-The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence.
+The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
 
 ## Tech Stack
 
@@ -131,7 +140,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, and terminal observable ordering.
+The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, and terminal observable ordering.
 
 ## Quick Demo (No Hardware Required)
 
@@ -144,10 +153,18 @@ echo "test-packet" | nc -u 127.0.0.1 9000
 Inspect system state:
 
 ```bash
-echo "packet-stats:json" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|packet-stats:json" | nc -U /tmp/edgenetswitch.sock
 ```
 
-This demonstrates deterministic packet ingestion, lifecycle tracking, and observable system state without hardware dependencies.
+Inject deterministic switching traffic through the control plane:
+
+```bash
+echo "1.2|send-packet:broadcast" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|send-packet:learn" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|show:mac-table" | nc -U /tmp/edgenetswitch.sock
+```
+
+This demonstrates deterministic packet ingestion, lifecycle tracking, MAC learning, forwarding decision observability, and runtime inspection without hardware dependencies.
 
 ## Contributing
 
