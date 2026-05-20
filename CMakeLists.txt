@@ -591,6 +591,27 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for FileDescriptor
+# -------------------------------------------------------
+if(BUILD_TESTING)
+
+    add_executable(FileDescriptorTests
+        tests/file_descriptor_tests.cpp
+        src/system/FileDescriptor.cpp
+    )
+
+    target_link_libraries(FileDescriptorTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(FileDescriptorTests PRIVATE include)
+
+    add_test(NAME FileDescriptorTests COMMAND FileDescriptorTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for Control dispatch
 # -------------------------------------------------------
 if(BUILD_TESTING)
