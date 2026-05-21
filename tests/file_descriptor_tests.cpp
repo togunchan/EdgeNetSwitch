@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "edgenetswitch/system/FdRecord.hpp"
 #include "edgenetswitch/system/FileDescriptor.hpp"
 
 #include <cerrno>
@@ -173,4 +174,23 @@ TEST_CASE("FileDescriptor move chains preserve unique ownership", "[FileDescript
 
     REQUIRE(fifth.release() == owned_fd);
     REQUIRE(::close(owned_fd) == 0);
+}
+
+TEST_CASE("FdRecord defaults to invalid state", "[FdRecord]")
+{
+    const FdRecord record;
+
+    REQUIRE(record.fd == -1);
+    REQUIRE(record.state == FdState::Invalid);
+}
+
+TEST_CASE("FdRecord stores descriptor state", "[FdRecord]")
+{
+    FdRecord record;
+
+    record.fd = 5;
+    record.state = FdState::Active;
+
+    REQUIRE(record.fd == 5);
+    REQUIRE(record.state == FdState::Active);
 }
