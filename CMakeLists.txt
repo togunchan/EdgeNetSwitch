@@ -149,6 +149,8 @@ add_executable(EdgeNetSwitchDaemon
     src/network/UdpReceiver.cpp
     src/replay/ReplayRecorder.cpp
     src/replay/ReplayPlayer.cpp
+    src/system/FileDescriptor.cpp
+    src/system/FdRegistry.cpp
 )
 
 target_link_libraries(EdgeNetSwitchDaemon

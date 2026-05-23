@@ -325,10 +325,11 @@ int main(int argc, char *argv[])
     std::thread controlThread;
     std::unique_ptr<UdpReceiver> udpReceiver;
     RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
+    FdRegistry fd_registry;
 
     if (cfg.udp.enabled)
     {
-        udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port);
+        udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry);
         udpReceiver->start();
     }
 

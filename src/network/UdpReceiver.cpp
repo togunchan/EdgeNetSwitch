@@ -1,21 +1,25 @@
 #include "edgenetswitch/network/UdpReceiver.hpp"
 
-#include <iostream>
 #include <cstring>
+#include <iostream>
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/packet/PacketParser.hpp"
 #include "edgenetswitch/packet/PacketValidator.hpp"
-#include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/system/FdRegistry.hpp"
+#include "edgenetswitch/system/FdType.hpp"
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 namespace edgenetswitch
 {
-    UdpReceiver::UdpReceiver(MessagingBus &bus, int port) : bus_(bus), port_(port) {}
+    UdpReceiver::UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry)
+        : bus_(bus), port_(port), fd_registry_(fd_registry)
+    {
+    }
 
     UdpReceiver::~UdpReceiver()
     {
@@ -28,12 +32,14 @@ namespace edgenetswitch
             return;
 
         // Create UDP socket
-        sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd_ < 0)
+        const int raw_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (raw_fd < 0)
         {
             std::cerr << "Failed to create socket\n";
             return;
         }
+
+        socket_fd_ = FileDescriptor(raw_fd, fd_registry_, FdType::UdpSocket);
 
         // Bind to port
         sockaddr_in addr{};
@@ -41,11 +47,10 @@ namespace edgenetswitch
         addr.sin_addr.s_addr = INADDR_ANY;
         addr.sin_port = htons(port_);
 
-        if (bind(sockfd_, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        if (bind(socket_fd_.get(), (struct sockaddr *)&addr, sizeof(addr)) < 0)
         {
             std::cerr << "Failed to bind socket\n";
-            close(sockfd_);
-            sockfd_ = -1;
+            socket_fd_.reset();
             return;
         }
 
@@ -64,10 +69,9 @@ namespace edgenetswitch
 
         running_ = false;
 
-        if (sockfd_ >= 0)
+        if (socket_fd_.valid())
         {
-            close(sockfd_);
-            sockfd_ = -1;
+            socket_fd_.reset();
         }
 
         if (worker_.joinable())
@@ -87,7 +91,8 @@ namespace edgenetswitch
             sockaddr_in client_addr{};
             socklen_t addr_len = sizeof(client_addr);
 
-            ssize_t len = recvfrom(sockfd_, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
+            ssize_t len = recvfrom(socket_fd_.get(), buffer, sizeof(buffer), 0,
+                                   (struct sockaddr *)&client_addr, &addr_len);
 
             if (len < 0)
             {
@@ -103,7 +108,7 @@ namespace edgenetswitch
 
             std::string data(buffer, static_cast<size_t>(len));
             Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
-            
+
             auto lifecycle_id = lifecycle_gen_.next();
             auto packet = parsePacket(data);
             packet.lifecycle_id = lifecycle_id;
@@ -115,11 +120,10 @@ namespace edgenetswitch
                 Message dropMsg{};
                 dropMsg.type = MessageType::PacketDropped;
                 dropMsg.timestamp_ms = ts;
-                dropMsg.payload = PacketDropped{
-                    .reason = PacketDropReason::ParseError,
-                    .timestamp_ms = ts,
-                    .packet_id = 0,
-                    .lifecycle_id = lifecycle_id};
+                dropMsg.payload = PacketDropped{.reason = PacketDropReason::ParseError,
+                                                .timestamp_ms = ts,
+                                                .packet_id = 0,
+                                                .lifecycle_id = lifecycle_id};
 
                 bus_.publish(std::move(dropMsg));
                 Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
@@ -145,18 +149,18 @@ namespace edgenetswitch
                 Message dropMsg{};
                 dropMsg.type = MessageType::PacketDropped;
                 dropMsg.timestamp_ms = ts;
-                dropMsg.payload = PacketDropped{
-                    .reason = PacketDropReason::ValidationError,
-                    .timestamp_ms = ts,
-                    .packet_id = packet.id,
-                    .lifecycle_id = lifecycle_id};
+                dropMsg.payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                                .timestamp_ms = ts,
+                                                .packet_id = packet.id,
+                                                .lifecycle_id = lifecycle_id};
 
                 bus_.publish(std::move(dropMsg));
-                Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" + toString(result.reason));
+                Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" +
+                             toString(result.reason));
                 continue;
             }
 
-            sendto(sockfd_, buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
+            sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 
             Message msg{};
             msg.type = MessageType::PacketRx;
