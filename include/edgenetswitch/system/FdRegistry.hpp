@@ -2,6 +2,7 @@
 
 #include "edgenetswitch/system/FdRecord.hpp"
 #include "edgenetswitch/system/FdState.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 
 #include <mutex>
 #include <unordered_map>
@@ -12,7 +13,7 @@ namespace edgenetswitch
     class FdRegistry
     {
     public:
-        void registerFd(int fd, FdState state);
+        void registerFd(int fd, FdState state, FdType fdType);
 
         void updateState(int fd, FdState state);
 

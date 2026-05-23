@@ -1,16 +1,17 @@
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FdRecord.hpp"
 #include "edgenetswitch/system/FdState.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 #include <mutex>
 #include <vector>
 
 namespace edgenetswitch
 {
-    void FdRegistry::registerFd(int fd, FdState state)
+    void FdRegistry::registerFd(int fd, FdState state, FdType fdType)
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        records_[fd] = FdRecord{.fd = fd, .state = state};
+        records_[fd] = FdRecord{.fd = fd, .state = state, .fd_type = fdType};
     }
 
     void FdRegistry::updateState(int fd, FdState state)

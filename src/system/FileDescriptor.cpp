@@ -1,6 +1,7 @@
 #include "edgenetswitch/system/FileDescriptor.hpp"
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FdState.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 
 #include <unistd.h>
 
@@ -8,11 +9,11 @@ namespace edgenetswitch
 {
     FileDescriptor::FileDescriptor(int fd) noexcept : fd_(fd) {}
 
-    FileDescriptor::FileDescriptor(int fd, FdRegistry *registry) noexcept
-        : fd_(fd), registry_(registry)
+    FileDescriptor::FileDescriptor(int fd, FdRegistry *registry, FdType fdType) noexcept
+        : fd_(fd), registry_(registry), fd_type_(fdType)
     {
         if (registry_ && valid())
-            registry_->registerFd(fd, FdState::Active);
+            registry_->registerFd(fd, FdState::Active, fdType);
     }
 
     FileDescriptor::~FileDescriptor()
@@ -21,7 +22,7 @@ namespace edgenetswitch
     }
 
     FileDescriptor::FileDescriptor(FileDescriptor &&other) noexcept
-        : fd_(other.fd_), registry_(other.registry_)
+        : fd_(other.fd_), registry_(other.registry_), fd_type_(other.fd_type_)
     {
         other.fd_ = -1;
         other.registry_ = nullptr;
@@ -68,7 +69,7 @@ namespace edgenetswitch
         return old_fd;
     }
 
-    void FileDescriptor::reset(int fd) noexcept
+    void FileDescriptor::reset(int fd, FdType type) noexcept
     {
         if (fd_ >= 0)
         {
@@ -84,7 +85,7 @@ namespace edgenetswitch
 
         if (registry_ && fd_ >= 0)
         {
-            registry_->registerFd(fd_, FdState::Active);
+            registry_->registerFd(fd_, FdState::Active, type);
         }
     }
 

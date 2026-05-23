@@ -2,6 +2,7 @@
 
 #include "edgenetswitch/system/FdRecord.hpp"
 #include "edgenetswitch/system/FdRegistry.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 #include "edgenetswitch/system/FileDescriptor.hpp"
 
 #include <cerrno>
@@ -131,7 +132,7 @@ TEST_CASE("FileDescriptor reset replaces ownership", "[FileDescriptor]")
     const int previous_fd = descriptor.get();
     const int replacement_fd = openTestDescriptor();
 
-    descriptor.reset(replacement_fd);
+    descriptor.reset(replacement_fd, FdType::Unknown);
 
     REQUIRE(isClosed(previous_fd));
     REQUIRE(descriptor.valid());
@@ -189,7 +190,7 @@ TEST_CASE("FileDescriptor move chains preserve unique ownership", "[FileDescript
 TEST_CASE("FileDescriptor constructor registers active descriptor", "[FileDescriptor][FdRegistry]")
 {
     FdRegistry registry;
-    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    FileDescriptor descriptor(openTestDescriptor(), &registry, FdType::Unknown);
     const int fd = descriptor.get();
 
     requireSingleRecord(registry, fd, FdState::Active);
@@ -198,7 +199,7 @@ TEST_CASE("FileDescriptor constructor registers active descriptor", "[FileDescri
 TEST_CASE("FileDescriptor release marks descriptor as released", "[FileDescriptor][FdRegistry]")
 {
     FdRegistry registry;
-    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    FileDescriptor descriptor(openTestDescriptor(), &registry, FdType::Unknown);
     const int fd = descriptor.get();
 
     const int released_fd = descriptor.release();
@@ -214,7 +215,7 @@ TEST_CASE("FileDescriptor release marks descriptor as released", "[FileDescripto
 TEST_CASE("FileDescriptor reset unregisters descriptor", "[FileDescriptor][FdRegistry]")
 {
     FdRegistry registry;
-    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    FileDescriptor descriptor(openTestDescriptor(), &registry, FdType::Unknown);
     const int fd = descriptor.get();
 
     requireSingleRecord(registry, fd, FdState::Active);
@@ -232,7 +233,7 @@ TEST_CASE("FileDescriptor destructor unregisters descriptor", "[FileDescriptor][
     int fd = -1;
 
     {
-        FileDescriptor descriptor(openTestDescriptor(), &registry);
+        FileDescriptor descriptor(openTestDescriptor(), &registry, FdType::Unknown);
         fd = descriptor.get();
 
         requireSingleRecord(registry, fd, FdState::Active);
@@ -249,7 +250,7 @@ TEST_CASE("FileDescriptor move construction preserves active lifecycle state",
     int fd = -1;
 
     {
-        FileDescriptor source(openTestDescriptor(), &registry);
+        FileDescriptor source(openTestDescriptor(), &registry, FdType::Unknown);
         fd = source.get();
 
         FileDescriptor target(std::move(source));
@@ -271,7 +272,7 @@ TEST_CASE("FileDescriptor move assignment preserves active lifecycle state",
     int fd = -1;
 
     {
-        FileDescriptor source(openTestDescriptor(), &registry);
+        FileDescriptor source(openTestDescriptor(), &registry, FdType::Unknown);
         FileDescriptor target;
         fd = source.get();
 
@@ -291,7 +292,7 @@ TEST_CASE("FileDescriptor ownership transfer does not create released transition
           "[FileDescriptor][FdRegistry]")
 {
     FdRegistry registry;
-    FileDescriptor first(openTestDescriptor(), &registry);
+    FileDescriptor first(openTestDescriptor(), &registry, FdType::Unknown);
     const int fd = first.get();
 
     FileDescriptor second(std::move(first));
@@ -308,12 +309,12 @@ TEST_CASE("FileDescriptor ownership transfer does not create released transition
 TEST_CASE("FileDescriptor reset registers replacement descriptor", "[FileDescriptor][FdRegistry]")
 {
     FdRegistry registry;
-    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    FileDescriptor descriptor(openTestDescriptor(), &registry, FdType::Unknown);
 
     const int previous_fd = descriptor.get();
     const int replacement_fd = openTestDescriptor();
 
-    descriptor.reset(replacement_fd);
+    descriptor.reset(replacement_fd, FdType::Unknown);
 
     REQUIRE(isClosed(previous_fd));
     requireSingleRecord(registry, replacement_fd, FdState::Active);

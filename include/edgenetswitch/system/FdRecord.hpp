@@ -1,6 +1,7 @@
 #pragma once
 
 #include "edgenetswitch/system/FdState.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 
 namespace edgenetswitch
 {
@@ -8,5 +9,6 @@ namespace edgenetswitch
     {
         int fd{-1};
         FdState state{FdState::Invalid};
+        FdType fd_type{FdType::Unknown};
     };
 } // namespace edgenetswitch

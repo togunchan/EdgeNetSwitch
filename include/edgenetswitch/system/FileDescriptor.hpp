@@ -1,5 +1,6 @@
 #pragma once
 
+#include "edgenetswitch/system/FdType.hpp"
 namespace edgenetswitch
 {
     class FdRegistry;
@@ -9,7 +10,7 @@ namespace edgenetswitch
     public:
         FileDescriptor() noexcept = default;
         FileDescriptor(int fd) noexcept;
-        FileDescriptor(int fd, FdRegistry *registry) noexcept;
+        FileDescriptor(int fd, FdRegistry *registry, FdType fdType) noexcept;
         ~FileDescriptor();
 
         // Prevent copying: multiple objects must not own the same FD.
@@ -25,10 +26,11 @@ namespace edgenetswitch
         [[nodiscard]] bool valid() const noexcept;
 
         int release() noexcept;
-        void reset(int fd = -1) noexcept;
+        void reset(int fd = -1, FdType type = FdType::Unknown) noexcept;
 
     private:
         int fd_{-1};
         FdRegistry *registry_{nullptr};
+        FdType fd_type_{FdType::Unknown};
     };
 } // namespace edgenetswitch
