@@ -2,11 +2,14 @@
 
 namespace edgenetswitch
 {
+    class FdRegistry;
+
     class FileDescriptor
     {
     public:
         FileDescriptor() noexcept = default;
         FileDescriptor(int fd) noexcept;
+        FileDescriptor(int fd, FdRegistry *registry) noexcept;
         ~FileDescriptor();
 
         // Prevent copying: multiple objects must not own the same FD.
@@ -26,5 +29,6 @@ namespace edgenetswitch
 
     private:
         int fd_{-1};
+        FdRegistry *registry_{nullptr};
     };
 } // namespace edgenetswitch

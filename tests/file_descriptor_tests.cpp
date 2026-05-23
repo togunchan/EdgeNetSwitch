@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "edgenetswitch/system/FdRecord.hpp"
+#include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FileDescriptor.hpp"
 
 #include <cerrno>
@@ -29,6 +30,15 @@ namespace
     {
         errno = 0;
         return ::fcntl(fd, F_GETFD) == -1 && errno == EBADF;
+    }
+
+    void requireSingleRecord(const FdRegistry &registry, int fd, FdState state)
+    {
+        const auto snapshot = registry.snapshot();
+
+        REQUIRE(snapshot.size() == 1);
+        REQUIRE(snapshot[0].fd == fd);
+        REQUIRE(snapshot[0].state == state);
     }
 } // namespace
 
@@ -174,6 +184,139 @@ TEST_CASE("FileDescriptor move chains preserve unique ownership", "[FileDescript
 
     REQUIRE(fifth.release() == owned_fd);
     REQUIRE(::close(owned_fd) == 0);
+}
+
+TEST_CASE("FileDescriptor constructor registers active descriptor", "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    const int fd = descriptor.get();
+
+    requireSingleRecord(registry, fd, FdState::Active);
+}
+
+TEST_CASE("FileDescriptor release marks descriptor as released", "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    const int fd = descriptor.get();
+
+    const int released_fd = descriptor.release();
+
+    REQUIRE(released_fd == fd);
+    REQUIRE_FALSE(descriptor.valid());
+    REQUIRE_FALSE(isClosed(released_fd));
+    requireSingleRecord(registry, released_fd, FdState::Released);
+
+    REQUIRE(::close(released_fd) == 0);
+}
+
+TEST_CASE("FileDescriptor reset unregisters descriptor", "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    FileDescriptor descriptor(openTestDescriptor(), &registry);
+    const int fd = descriptor.get();
+
+    requireSingleRecord(registry, fd, FdState::Active);
+
+    descriptor.reset();
+
+    REQUIRE_FALSE(descriptor.valid());
+    REQUIRE(isClosed(fd));
+    REQUIRE(registry.snapshot().empty());
+}
+
+TEST_CASE("FileDescriptor destructor unregisters descriptor", "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    int fd = -1;
+
+    {
+        FileDescriptor descriptor(openTestDescriptor(), &registry);
+        fd = descriptor.get();
+
+        requireSingleRecord(registry, fd, FdState::Active);
+    }
+
+    REQUIRE(isClosed(fd));
+    REQUIRE(registry.snapshot().empty());
+}
+
+TEST_CASE("FileDescriptor move construction preserves active lifecycle state",
+          "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    int fd = -1;
+
+    {
+        FileDescriptor source(openTestDescriptor(), &registry);
+        fd = source.get();
+
+        FileDescriptor target(std::move(source));
+
+        REQUIRE_FALSE(source.valid());
+        REQUIRE(target.valid());
+        REQUIRE(target.get() == fd);
+        requireSingleRecord(registry, fd, FdState::Active);
+    }
+
+    REQUIRE(isClosed(fd));
+    REQUIRE(registry.snapshot().empty());
+}
+
+TEST_CASE("FileDescriptor move assignment preserves active lifecycle state",
+          "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    int fd = -1;
+
+    {
+        FileDescriptor source(openTestDescriptor(), &registry);
+        FileDescriptor target;
+        fd = source.get();
+
+        target = std::move(source);
+
+        REQUIRE_FALSE(source.valid());
+        REQUIRE(target.valid());
+        REQUIRE(target.get() == fd);
+        requireSingleRecord(registry, fd, FdState::Active);
+    }
+
+    REQUIRE(isClosed(fd));
+    REQUIRE(registry.snapshot().empty());
+}
+
+TEST_CASE("FileDescriptor ownership transfer does not create released transitions",
+          "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    FileDescriptor first(openTestDescriptor(), &registry);
+    const int fd = first.get();
+
+    FileDescriptor second(std::move(first));
+    FileDescriptor third;
+    third = std::move(second);
+
+    REQUIRE_FALSE(first.valid());
+    REQUIRE_FALSE(second.valid());
+    REQUIRE(third.valid());
+    REQUIRE(third.get() == fd);
+    requireSingleRecord(registry, fd, FdState::Active);
+}
+
+TEST_CASE("FileDescriptor reset registers replacement descriptor", "[FileDescriptor][FdRegistry]")
+{
+    FdRegistry registry;
+    FileDescriptor descriptor(openTestDescriptor(), &registry);
+
+    const int previous_fd = descriptor.get();
+    const int replacement_fd = openTestDescriptor();
+
+    descriptor.reset(replacement_fd);
+
+    REQUIRE(isClosed(previous_fd));
+    requireSingleRecord(registry, replacement_fd, FdState::Active);
 }
 
 TEST_CASE("FdRecord defaults to invalid state", "[FdRecord]")

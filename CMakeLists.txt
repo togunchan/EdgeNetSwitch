@@ -598,6 +598,7 @@ if(BUILD_TESTING)
     add_executable(FileDescriptorTests
         tests/file_descriptor_tests.cpp
         src/system/FileDescriptor.cpp
+        src/system/FdRegistry.cpp
     )
 
     target_link_libraries(FileDescriptorTests
