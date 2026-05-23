@@ -20,6 +20,9 @@
 #include "edgenetswitch/switching/InterfaceRegistry.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/switching/SwitchPort.hpp"
+#include "edgenetswitch/system/FdRegistry.hpp"
+#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/FileDescriptor.hpp"
 #include "edgenetswitch/telemetry/Telemetry.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
@@ -64,14 +67,16 @@ namespace
 
     constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
 
-    int createControlSocket()
+    FileDescriptor createControlSocket(FdRegistry *fd_registry)
     {
-        int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        if (fd < 0)
+        const int raw_fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        if (raw_fd < 0)
         {
             Logger::error("Failed to create control socket");
-            return -1;
+            return {};
         }
+
+        FileDescriptor control_fd(raw_fd, fd_registry, FdType::UnixSocket);
 
         sockaddr_un addr{};
         addr.sun_family = AF_UNIX;
@@ -80,33 +85,30 @@ namespace
         // Remove any existing socket file at the same path
         ::unlink(CONTROL_SOCKET_PATH);
 
-        if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
+        if (::bind(control_fd.get(), reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0)
         {
             Logger::error("Failed to bind the control socket");
-            ::close(fd);
-            return -1;
+            control_fd.reset();
+            return {};
         }
 
         // Allow the socket to accept incoming connections, with a queue size of up to 4
-        if (::listen(fd, 4) < 0)
+        if (::listen(control_fd.get(), 4) < 0)
         {
             Logger::error("Failed to listen on control socket");
-            ::close(fd);
-            return -1;
+            control_fd.reset();
+            return {};
         }
 
         Logger::info(std::string("Control socket listening at ") + CONTROL_SOCKET_PATH);
-        return fd;
+        return control_fd;
     }
 
-    void destroyControlSocket(int fd)
+    void destroyControlSocket(FileDescriptor &fd)
     {
-        if (fd >= 0)
-        {
-            ::close(fd);
-            ::unlink(CONTROL_SOCKET_PATH);
-            Logger::info("Control socket closed");
-        }
+        fd.reset();
+        ::unlink(CONTROL_SOCKET_PATH);
+        Logger::info("Control socket closed");
     }
 
     void writeControlResponse(int client_fd, const control::ControlResponse &resp)
@@ -320,12 +322,12 @@ int main(int argc, char *argv[])
     SwitchForwardingEngine forwardingEngine(macTable, interfaces);
     PacketProcessor packetProcessor(bus, forwardingEngine, failureInjector);
     PacketStats packetStats(bus);
+    FdRegistry fd_registry;
     TelemetryExportManager exportManager;
-    int control_fd = createControlSocket();
+    FileDescriptor control_fd = createControlSocket(&fd_registry);
     std::thread controlThread;
     std::unique_ptr<UdpReceiver> udpReceiver;
     RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
-    FdRegistry fd_registry;
 
     if (cfg.udp.enabled)
     {
@@ -346,14 +348,14 @@ int main(int argc, char *argv[])
         g_snapshotPublisher.publish(status);
     }
 
-    if (control_fd >= 0)
+    if (control_fd.valid())
     {
-        controlThread = std::thread(controlSocketThreadFunc, control_fd, std::cref(telemetry),
+        controlThread = std::thread(controlSocketThreadFunc, control_fd.get(), std::cref(telemetry),
                                     std::cref(runtimeState), std::cref(healthMonitor),
                                     std::cref(g_stopRequested), std::cref(cfg), std::ref(bus),
                                     std::ref(forwardingEngine));
     }
-    if (control_fd < 0)
+    if (!control_fd.valid())
     {
         Logger::error("Fatal: control socket initialization failed");
         return EXIT_FAILURE;
