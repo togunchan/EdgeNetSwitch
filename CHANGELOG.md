@@ -16,8 +16,37 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.8.8` adds deterministic failure injection on top of that lifecycle model, with explicit drop-reason mapping and overload validation.
 - `v1.8.9` closes the replay determinism architecture by validating replayed executions against observable terminal history.
 - `v1.9.0` integrates deterministic switching semantics into the runtime path, connecting control-plane packet injection, MAC learning, forwarding decisions, and MAC table inspection through the existing event architecture.
+- `v1.9.1` adds file descriptor lifecycle management, making Linux resource ownership, descriptor state, and teardown correctness visible through the runtime control plane.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.1] - File Descriptor Lifecycle Management
+
+### Added
+- Added a move-only `FileDescriptor` ownership model for POSIX file descriptors used by runtime I/O paths.
+- Added `FdRegistry` as the runtime descriptor inventory for tracking descriptor state and descriptor type.
+- Added runtime-visible descriptor states for active, closed, and released descriptors.
+- Added descriptor type tracking for UDP sockets and UNIX control sockets.
+- Added `fd-status` and `fd-status:json` control-plane commands for descriptor lifecycle inspection.
+- Added shutdown-time FD leak detection so descriptor ownership failures are reported during deterministic teardown.
+
+### Changed
+- Integrated UDP socket ownership with the RAII descriptor model, making ingress socket lifetime explicit in runtime state.
+- Integrated UNIX control socket ownership with the same lifecycle model used by packet ingress.
+- Extended the control context with descriptor registry access so resource ownership can be inspected without bypassing the existing command-dispatch path.
+- Promoted descriptor lifecycle state from an implementation detail to an operational signal available through the control plane.
+
+### Operational Behavior
+- `fd-status` exposes a human-readable runtime inventory of tracked descriptors, including descriptor number, state, and type.
+- `fd-status:json` exposes the same lifecycle inventory as structured control-plane data for automation and validation.
+- During shutdown, tracked descriptors are expected to converge through deterministic teardown. Leaked or still-active descriptors are surfaced as lifecycle violations instead of being silently left to process exit.
+- Released descriptors remain distinguishable from closed descriptors, preserving ownership transfer semantics when the runtime intentionally gives up responsibility for an FD.
+
+### Engineering Notes
+- This milestone brings Linux runtime semantics into the same explicit ownership model already used for packet lifecycle accounting and runtime shutdown.
+- Descriptor state is intentionally runtime-visible because file descriptor leaks, ownership transfers, and teardown ordering are operational correctness concerns.
+- The registry is observational infrastructure, not an alternate owner. Ownership remains with `FileDescriptor`; `FdRegistry` records lifecycle state for introspection and shutdown validation.
+- UDP and UNIX socket integration verifies that descriptor management applies to real runtime resources, not only isolated unit-test handles.
 
 ## [v1.9.0] - Switching Runtime Integration
 

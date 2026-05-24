@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.0-orange)
+![Version](https://img.shields.io/badge/version-v1.9.1-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -21,6 +21,7 @@ EdgeNetSwitch isolates the runtime as a deterministic execution environment with
 The system enables early validation of:
 - event flow through the runtime
 - concurrency boundaries and ownership
+- Linux resource ownership and descriptor lifecycle behavior
 - overload and backpressure behavior
 - lifecycle correctness guarantees
 - replay-verifiable deterministic behavior
@@ -39,9 +40,11 @@ The system enables early validation of:
 - Switching runtime integration: packets carrying MAC metadata and ingress ports produce deterministic drop, flood, or known-unicast forwarding decisions.
 - Control-plane packet injection: synthetic packet commands enter through the UNIX socket, command dispatch, `MessagingBus`, and normal packet processor path.
 - Forwarding observability: `ForwardingDecisionMade` events expose runtime decisions before packets reach their terminal processed event.
+- Linux resource ownership modeling: UDP and UNIX sockets are wrapped in move-only RAII descriptors with runtime-visible descriptor state.
+- File descriptor lifecycle inspection: `fd-status` exposes descriptor number, state, and type through the control plane.
 - Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
 - Observability-first design: telemetry export runs off the runtime path, and the control plane exposes structured snapshots plus narrow synthetic runtime probes.
-- Production-grade lifecycle management: RAII cleanup, coordinated shutdown, and thread ownership discipline.
+- Production-grade lifecycle management: RAII cleanup, deterministic FD teardown, coordinated shutdown, and thread ownership discipline.
 
 ## Architecture Overview
 
@@ -89,6 +92,8 @@ flowchart LR
 The main tradeoff is intentional: the runtime prioritizes deterministic execution and explicit loss over hidden blocking, unbounded buffering, or timing side effects from observability paths.
 
 The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
+
+Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during deterministic shutdown.
 
 ## Tech Stack
 
@@ -154,6 +159,8 @@ Inspect system state:
 
 ```bash
 echo "1.2|packet-stats:json" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|fd-status" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|fd-status:json" | nc -U /tmp/edgenetswitch.sock
 ```
 
 Inject deterministic switching traffic through the control plane:
@@ -164,7 +171,7 @@ echo "1.2|send-packet:learn" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|show:mac-table" | nc -U /tmp/edgenetswitch.sock
 ```
 
-This demonstrates deterministic packet ingestion, lifecycle tracking, MAC learning, forwarding decision observability, and runtime inspection without hardware dependencies.
+This demonstrates deterministic packet ingestion, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, and runtime inspection without hardware dependencies.
 
 ## Contributing
 
