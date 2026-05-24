@@ -1,8 +1,9 @@
 #pragma once
 
-#include <string>
+#include "edgenetswitch/control/ControlProtocol.hpp"
+
 #include <nlohmann/json.hpp>
-#include "ControlDispatch.hpp"
+#include <string>
 
 namespace edgenetswitch::control
 {
@@ -13,9 +14,7 @@ namespace edgenetswitch::control
         j["status"] = "ok";
         j["data"] = data;
 
-        return ControlResponse{
-            .success = true,
-            .payload = j.dump(2)};
+        return ControlResponse{.success = true, .payload = j.dump(2)};
     }
 
     inline ControlResponse makeJsonError(const std::string &code, const std::string &msg)
@@ -26,10 +25,7 @@ namespace edgenetswitch::control
         j["error"]["message"] = msg;
 
         return ControlResponse{
-            .success = false,
-            .payload = j.dump(2),
-            .error_code = code,
-            .message = msg};
+            .success = false, .payload = j.dump(2), .error_code = code, .message = msg};
     }
 
 } // namespace edgenetswitch::control

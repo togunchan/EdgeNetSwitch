@@ -130,7 +130,8 @@ namespace
                                  const RuntimeState &runtimeState,
                                  const HealthMonitor &healthMonitor,
                                  const std::atomic_bool &stopRequested, const core::Config &cfg,
-                                 MessagingBus &bus, SwitchForwardingEngine &forwardingEngine)
+                                 MessagingBus &bus, SwitchForwardingEngine &forwardingEngine,
+                                 FdRegistry &fdRegistry)
     {
         while (!stopRequested.load(std::memory_order_relaxed))
         {
@@ -175,7 +176,8 @@ namespace
                 control::ControlContext ctx{.publisher = &g_snapshotPublisher,
                                             .config = &cfg,
                                             .bus = &bus,
-                                            .forwarding_engine = &forwardingEngine};
+                                            .forwarding_engine = &forwardingEngine,
+                                            .fd_registry = &fdRegistry};
 
                 const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
                 writeControlResponse(client_fd, resp);
@@ -353,7 +355,7 @@ int main(int argc, char *argv[])
         controlThread = std::thread(controlSocketThreadFunc, control_fd.get(), std::cref(telemetry),
                                     std::cref(runtimeState), std::cref(healthMonitor),
                                     std::cref(g_stopRequested), std::cref(cfg), std::ref(bus),
-                                    std::ref(forwardingEngine));
+                                    std::ref(forwardingEngine), std::ref(fd_registry));
     }
     if (!control_fd.valid())
     {

@@ -9,6 +9,8 @@
 #include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "edgenetswitch/system/FdState.hpp"
+#include "edgenetswitch/system/FdType.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 
 namespace edgenetswitch::control
@@ -439,6 +441,88 @@ namespace edgenetswitch::control
         return makeJsonError(error::InvalidRequest, "unsupported packet mode: " + arg);
     }
 
+    static std::string fdStateToString(FdState state)
+    {
+        switch (state)
+        {
+        case FdState::Active:
+            return "active";
+
+        case FdState::Closed:
+            return "closed";
+
+        case FdState::Released:
+            return "released";
+
+        default:
+            return "invalid";
+        }
+    }
+
+    static std::string fdTypeToString(FdType type)
+    {
+        switch (type)
+        {
+        case FdType::UdpSocket:
+            return "udp_socket";
+
+        case FdType::UnixSocket:
+            return "unix_socket";
+
+        default:
+            return "unknown";
+        }
+    }
+
+    static ControlResponse handleFdStatus(const ControlContext &ctx, const std::string &arg)
+    {
+        if (!ctx.fd_registry)
+        {
+            return makeJsonError(error::InternalError, "fd registry unavailable");
+        }
+
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
+        const auto records = ctx.fd_registry->snapshot();
+
+        if (arg == "json")
+        {
+            nlohmann::json fds = nlohmann::json::array();
+
+            for (const auto &record : records)
+            {
+                nlohmann::json fd;
+
+                fd["fd"] = record.fd;
+                fd["state"] = fdStateToString(record.state);
+                fd["type"] = fdTypeToString(record.fd_type);
+
+                fds.push_back(std::move(fd));
+            }
+
+            nlohmann::json j;
+            j["fds"] = std::move(fds);
+
+            return makeJsonSuccess(j);
+        }
+
+        std::string payload;
+
+        payload += "fd_count=" + std::to_string(records.size()) + "\n";
+
+        for (const auto &record : records)
+        {
+            payload += "fd=" + std::to_string(record.fd) +
+                       " state=" + fdStateToString(record.state) +
+                       " type=" + fdTypeToString(record.fd_type) + "\n";
+        }
+
+        return ControlResponse{.success = true, .payload = std::move(payload)};
+    }
+
     static const CommandTable &commandTable()
     {
         // Static dispatch table:
@@ -498,6 +582,11 @@ namespace edgenetswitch::control
               .description = "runtime inspection commands",
               .fields = {"mac-table"},
               .handler = handleShow}},
+            {"fd-status",
+             {.name = "fd-status",
+              .description = "file descriptor runtime state",
+              .fields = {"fd", "state", "type"},
+              .handler = handleFdStatus}},
         };
         return table;
     }

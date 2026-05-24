@@ -623,6 +623,7 @@ if(BUILD_TESTING)
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
         src/runtime/SnapshotPublisher.cpp
+        src/system/FdRegistry.cpp
     )
 
     target_link_libraries(ControlTests
