@@ -522,6 +522,26 @@ int main(int argc, char *argv[])
                  " tick_count=" + std::to_string(status.metrics.tick_count));
     bus.publish({MessageType::SystemShutdown, nowMs()});
 
+    const auto remaining_fds = fd_registry.snapshot();
+
+    bool leak_detected = false;
+
+    for (const auto &record : remaining_fds)
+    {
+        if (record.state == FdState::Active)
+        {
+            leak_detected = true;
+
+            Logger::error("[FD][LEAK] active descriptor detected during shutdown: fd=" +
+                          std::to_string(record.fd));
+        }
+    }
+
+    if (!leak_detected)
+    {
+        Logger::info("[FD] all descriptors released cleanly");
+    }
+
     Logger::info("EdgeNetSwitch daemon stopped.");
     Logger::shutdown();
 
