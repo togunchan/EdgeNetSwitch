@@ -1,18 +1,23 @@
 #pragma once
 
-#include <string>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <string>
 
 inline std::uint64_t nowMs()
 {
     using namespace std::chrono;
     return static_cast<std::uint64_t>(
-        duration_cast<milliseconds>(
-            system_clock::now().time_since_epoch())
-            .count());
+        duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+}
+
+inline std::uint64_t nowNs()
+{
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count());
 }
 
 inline std::string formatTimestamp(std::uint64_t timestamp_ms)

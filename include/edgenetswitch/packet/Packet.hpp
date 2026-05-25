@@ -39,5 +39,6 @@ namespace edgenetswitch
         std::optional<MacAddress> source_mac;
         std::optional<MacAddress> destination_mac;
         std::optional<std::uint32_t> ingress_port;
+        std::uint64_t ingress_timestamp_ns{0};
     };
 } // namespace edgenetswitch

@@ -106,12 +106,15 @@ namespace edgenetswitch
                 continue;
             }
 
+            const auto ingress_ts = nowNs();
+
             std::string data(buffer, static_cast<size_t>(len));
             Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
 
             auto lifecycle_id = lifecycle_gen_.next();
             auto packet = parsePacket(data);
             packet.lifecycle_id = lifecycle_id;
+            packet.ingress_timestamp_ns = ingress_ts;
 
             if (!packet.valid)
             {

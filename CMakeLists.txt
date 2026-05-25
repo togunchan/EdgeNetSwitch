@@ -2,6 +2,47 @@ cmake_minimum_required(VERSION 3.21)
 project(EdgeNetSwitch LANGUAGES CXX)
 
 # -------------------------------------------------------
+# Debug / Sanitizer Settings
+# -------------------------------------------------------
+option(EDGENETSWITCH_ENABLE_SANITIZERS
+    "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
+    OFF
+)
+
+option(EDGENETSWITCH_ENABLE_ASSERTIONS
+    "Enable runtime assertions"
+    ON
+)
+
+if(EDGENETSWITCH_ENABLE_SANITIZERS)
+
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR
+            "Sanitizers require Clang or GCC"
+        )
+    endif()
+
+    message(STATUS
+        "EdgeNetSwitch: sanitizers enabled"
+    )
+
+    add_compile_options(
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -g
+    )
+
+    add_link_options(
+        -fsanitize=address,undefined
+    )
+
+endif()
+
+if(NOT EDGENETSWITCH_ENABLE_ASSERTIONS)
+    add_compile_definitions(NDEBUG)
+endif()
+
+# -------------------------------------------------------
 # Global Settings
 # -------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
