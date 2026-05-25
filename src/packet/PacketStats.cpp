@@ -114,6 +114,17 @@ namespace edgenetswitch
         const std::uint64_t pending_terminal_events =
             ingress_packets > terminal_events ? ingress_packets - terminal_events : 0;
 
+        const auto total_latency = total_processing_latency_ns_.load(std::memory_order_relaxed);
+        const auto max_latency = max_processing_latency_ns_.load(std::memory_order_relaxed);
+        const auto latency_samples = latency_samples_.load(std::memory_order_relaxed);
+
+        std::uint64_t average_latency = 0;
+
+        if (latency_samples != 0)
+        {
+            average_latency = total_latency / latency_samples;
+        }
+
         return PacketMetrics{.rx_packets = current_packets,
                              .rx_bytes = current_bytes,
                              .rx_packets_per_sec = 0,
@@ -126,7 +137,11 @@ namespace edgenetswitch
                              .processing_gap = processing_gap,
                              .terminal_events = terminal_events,
                              .duplicate_events = duplicate_events,
-                             .pending_terminal_events = pending_terminal_events};
+                             .pending_terminal_events = pending_terminal_events,
+                             .total_processing_latency_ns = total_latency,
+                             .max_processing_latency_ns = max_latency,
+                             .average_processing_latency_ns = average_latency,
+                             .latency_samples = latency_samples};
     }
 
     std::uint64_t PacketStats::rxPackets() const

@@ -251,6 +251,9 @@ namespace edgenetswitch::control
             j["terminal_events"] = snap->packet.terminal_events;
             j["duplicate_events"] = snap->packet.duplicate_events;
             j["pending_terminal_events"] = snap->packet.pending_terminal_events;
+            j["average_processing_latency_ns"] = snap->packet.average_processing_latency_ns;
+            j["max_processing_latency_ns"] = snap->packet.max_processing_latency_ns;
+            j["latency_samples"] = snap->packet.latency_samples;
 
             return makeJsonSuccess(j);
         }
@@ -282,6 +285,10 @@ namespace edgenetswitch::control
         payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events);
         payload +=
             "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events);
+        payload += "average_processing_latency_ns=" +
+                   std::to_string(snap->packet.average_processing_latency_ns) + "\n";
+        payload +=
+            "max_processing_latency_ns=" + std::to_string(snap->packet.max_processing_latency_ns) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
