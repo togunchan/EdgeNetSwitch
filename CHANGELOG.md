@@ -17,8 +17,37 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.8.9` closes the replay determinism architecture by validating replayed executions against observable terminal history.
 - `v1.9.0` integrates deterministic switching semantics into the runtime path, connecting control-plane packet injection, MAC learning, forwarding decisions, and MAC table inspection through the existing event architecture.
 - `v1.9.1` adds file descriptor lifecycle management, making Linux resource ownership, descriptor state, and teardown correctness visible through the runtime control plane.
+- `v1.9.2` adds runtime ingress latency instrumentation and compares blocking UDP ingress with non-blocking polling behavior, including idle-poll visibility and sanitizer-enabled validation.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.2] - Blocking vs Non-Blocking Runtime Analysis
+
+### Added
+- Added `nowNs()` runtime timing support using `std::chrono::steady_clock`.
+- Added `ingress_timestamp_ns` to `Packet` for accepted-packet latency measurement.
+- Added ingress-to-processed latency accounting to `PacketStats`, including total latency, maximum latency, and latency sample counts.
+- Added latency visibility through `packet-stats` and `packet-stats:json`.
+- Added `idle_polls` observability for non-blocking polling mode.
+- Added optional sanitizer build infrastructure through `EDGENETSWITCH_ENABLE_SANITIZERS` and `EDGENETSWITCH_ENABLE_ASSERTIONS`.
+
+### Changed
+- Instrumented UDP ingress immediately after successful `recvfrom()` so runtime packets carry monotonic ingress timestamps.
+- Added non-blocking UDP socket experimentation using `O_NONBLOCK` via `fcntl()`.
+- Compared blocking ingress behavior against non-blocking polling under periodic and sustained ingress traffic.
+- Documented the runtime tradeoff between blocking wait behavior and aggressive polling.
+
+### Validated
+- Runtime tests passed under ASan/UBSan instrumentation.
+- Blocking periodic ingress preserved stable lifecycle accounting with `processing_gap = 0`, `duplicate_events = 0`, and no drops in the measured runs.
+- Sustained burst ingress kept the runtime operational while exposing transient processing gaps and tail-latency variation.
+- Non-blocking polling reduced periodic ingress latency but produced high `idle_polls` counts while idle.
+
+### Engineering Notes
+- Latency metrics measure successful UDP ingress observation to `PacketProcessed` completion for accepted packets. Dropped paths are not included in the processing-latency sample.
+- `idle_polls` makes busy polling cost visible through normal runtime metrics instead of leaving it implicit.
+- The release establishes the baseline needed before readiness-based ingress work such as `epoll`.
+- Lifecycle correctness remained the primary boundary: duplicate terminal events stayed zero, parse failures remained explicit, and accounting behavior stayed observable under load.
 
 ## [v1.9.1] - File Descriptor Lifecycle Management
 

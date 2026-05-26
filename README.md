@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.1-orange)
+![Version](https://img.shields.io/badge/version-v1.9.2-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -43,8 +43,18 @@ The system enables early validation of:
 - Linux resource ownership modeling: UDP and UNIX sockets are wrapped in move-only RAII descriptors with runtime-visible descriptor state.
 - File descriptor lifecycle inspection: `fd-status` exposes descriptor number, state, and type through the control plane.
 - Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
+- Runtime latency instrumentation: packets carry ingress timestamps and expose ingress-to-processed latency through packet statistics.
+- Ingress-mode analysis: blocking and non-blocking UDP ingress behavior can be compared through runtime-visible latency, gap, duplicate-event, and idle-poll metrics.
 - Observability-first design: telemetry export runs off the runtime path, and the control plane exposes structured snapshots plus narrow synthetic runtime probes.
 - Production-grade lifecycle management: RAII cleanup, deterministic FD teardown, coordinated shutdown, and thread ownership discipline.
+
+## Latest Runtime Evolution
+
+v1.9.2 extends the runtime analysis surface from descriptor ownership into ingress timing behavior. Packet ingress now records `ingress_timestamp_ns`, and `packet-stats` / `packet-stats:json` expose ingress-to-processed latency metrics for accepted packets.
+
+The release compares blocking UDP ingress with non-blocking polling mode. Blocking ingress kept idle CPU behavior efficient but showed higher periodic latency. Non-blocking polling reduced periodic latency while making idle polling cost visible through the new `idle_polls` metric.
+
+Lifecycle invariants remained stable during the measured runs: `duplicate_events` stayed zero, processing gaps were observable and transient, and parse failures remained explicit. This gives the runtime a measured baseline before readiness-based ingress work such as `epoll`.
 
 ## Architecture Overview
 
