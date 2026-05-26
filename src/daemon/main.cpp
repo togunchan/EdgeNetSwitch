@@ -335,7 +335,7 @@ int main(int argc, char *argv[])
     if (cfg.udp.enabled)
     {
         udpReceiver =
-            std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry, IngressMode::NonBlocking);
+            std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry, IngressMode::Blocking);
         udpReceiver->start();
     }
 
