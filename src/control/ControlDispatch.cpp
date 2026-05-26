@@ -254,6 +254,7 @@ namespace edgenetswitch::control
             j["average_processing_latency_ns"] = snap->packet.average_processing_latency_ns;
             j["max_processing_latency_ns"] = snap->packet.max_processing_latency_ns;
             j["latency_samples"] = snap->packet.latency_samples;
+            j["idle_polls"] = snap->packet.idle_polls;
 
             return makeJsonSuccess(j);
         }
@@ -288,7 +289,9 @@ namespace edgenetswitch::control
         payload += "average_processing_latency_ns=" +
                    std::to_string(snap->packet.average_processing_latency_ns) + "\n";
         payload +=
-            "max_processing_latency_ns=" + std::to_string(snap->packet.max_processing_latency_ns) + "\n";
+            "max_processing_latency_ns=" + std::to_string(snap->packet.max_processing_latency_ns) +
+            "\n";
+        payload += "idle_polls=" + std::to_string(snap->packet.idle_polls) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }

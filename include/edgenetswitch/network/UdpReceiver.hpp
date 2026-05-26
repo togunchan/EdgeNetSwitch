@@ -4,6 +4,7 @@
 #include <thread>
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/network/IngressMode.hpp"
 #include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FileDescriptor.hpp"
@@ -13,7 +14,7 @@ namespace edgenetswitch
     class UdpReceiver
     {
     public:
-        UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry);
+        UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry, IngressMode ingress_mode = IngressMode::Blocking);
         ~UdpReceiver();
 
         void start();
@@ -29,5 +30,6 @@ namespace edgenetswitch
         std::atomic_bool running_{false};
         std::thread worker_;
         LifecycleIdGenerator lifecycle_gen_;
+        IngressMode ingress_mode_{IngressMode::Blocking};
     };
 } // namespace edgenetswitch

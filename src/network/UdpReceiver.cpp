@@ -5,19 +5,23 @@
 
 #include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/network/IngressMode.hpp"
 #include "edgenetswitch/packet/PacketParser.hpp"
 #include "edgenetswitch/packet/PacketValidator.hpp"
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FdType.hpp"
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 namespace edgenetswitch
 {
-    UdpReceiver::UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry)
-        : bus_(bus), port_(port), fd_registry_(fd_registry)
+    UdpReceiver::UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry,
+                             IngressMode ingress_mode)
+        : bus_(bus), port_(port), fd_registry_(fd_registry), ingress_mode_((ingress_mode))
     {
     }
 
@@ -52,6 +56,32 @@ namespace edgenetswitch
             std::cerr << "Failed to bind socket\n";
             socket_fd_.reset();
             return;
+        }
+
+        if (ingress_mode_ == IngressMode::NonBlocking)
+        {
+            // Read existing socket status flags before enabling O_NONBLOCK.
+            const int flags = ::fcntl(socket_fd_.get(), F_GETFL, 0);
+
+            if (flags < 0)
+            {
+                Logger::error("Failed to get socket flags");
+                socket_fd_.reset();
+                return;
+            }
+
+            if (::fcntl(socket_fd_.get(), F_SETFL, flags | O_NONBLOCK) < 0)
+            {
+                Logger::error("Failed to enable O_NONBLOCK");
+                socket_fd_.reset();
+                return;
+            }
+
+            Logger::info("UDP receiver running in non-blocking mode");
+        }
+        else
+        {
+            Logger::info("UDP receiver running in blocking mode");
         }
 
         running_ = true;
@@ -101,6 +131,19 @@ namespace edgenetswitch
 
                 if (errno == EINTR)
                     continue;
+
+                // Non-blocking sockets return EAGAIN/EWOULDBLOCK when no packet is available yet.
+                // This is an expected runtime condition, not a fatal socket error.
+                if (errno == EAGAIN || errno == EWOULDBLOCK)
+                {
+                    Message msg{};
+                    msg.type = MessageType::IngressIdlePoll;
+                    msg.timestamp_ms = nowMs();
+                    msg.payload = IngressIdlePoll{msg.timestamp_ms};
+                    bus_.publish(std::move(msg));
+
+                    continue;
+                }
 
                 Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
                 continue;

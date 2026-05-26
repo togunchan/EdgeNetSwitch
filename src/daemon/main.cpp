@@ -8,6 +8,7 @@
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/network/IngressMode.hpp"
 #include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/packet/PacketGenerator.hpp"
@@ -333,7 +334,8 @@ int main(int argc, char *argv[])
 
     if (cfg.udp.enabled)
     {
-        udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry);
+        udpReceiver =
+            std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry, IngressMode::NonBlocking);
         udpReceiver->start();
     }
 

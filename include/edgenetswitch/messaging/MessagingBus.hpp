@@ -1,11 +1,11 @@
 #pragma once
 
-#include <functional>
-#include <unordered_map>
-#include <vector>
-#include <mutex>
 #include <cstdint>
+#include <functional>
+#include <mutex>
+#include <unordered_map>
 #include <variant>
+#include <vector>
 
 #include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
@@ -25,7 +25,13 @@ namespace edgenetswitch
         PacketRx,
         PacketProcessed,
         PacketDropped,
-        ForwardingDecisionMade
+        ForwardingDecisionMade,
+        IngressIdlePoll
+    };
+
+    struct IngressIdlePoll
+    {
+        std::uint64_t timestamp_ms{0};
     };
 
     struct TelemetryData
@@ -47,11 +53,8 @@ namespace edgenetswitch
     {
         MessageType type;
         std::uint64_t timestamp_ms;
-        using Payload = std::variant<std::monostate,
-                                     TelemetryData,
-                                     HealthStatus,
-                                     Packet,
-                                     PacketDropped,ForwardingEvent>;
+        using Payload = std::variant<std::monostate, TelemetryData, HealthStatus, Packet,
+                                     PacketDropped, ForwardingEvent, IngressIdlePoll>;
         Payload payload{};
     };
 
