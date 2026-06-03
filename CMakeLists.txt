@@ -194,6 +194,13 @@ add_executable(EdgeNetSwitchDaemon
     src/system/FdRegistry.cpp
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(EdgeNetSwitchDaemon
+        PRIVATE
+            src/system/EventFd.cpp
+    )
+endif()
+
 target_link_libraries(EdgeNetSwitchDaemon
     PRIVATE
         Telemetry
