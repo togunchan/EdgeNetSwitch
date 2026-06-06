@@ -663,6 +663,34 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for EpollManager and EventFd integration
+# -------------------------------------------------------
+if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+
+    add_executable(EpollManagerTests
+        tests/epoll_manager_tests.cpp
+        src/system/EpollManager.cpp
+        src/system/EventFd.cpp
+        src/system/FileDescriptor.cpp
+        src/system/FdRegistry.cpp
+    )
+
+    target_link_libraries(EpollManagerTests
+        PRIVATE
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(EpollManagerTests
+        PRIVATE
+            include
+            src
+    )
+
+    add_test(NAME EpollManagerTests COMMAND EpollManagerTests)
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for Control dispatch
 # -------------------------------------------------------
 if(BUILD_TESTING)
