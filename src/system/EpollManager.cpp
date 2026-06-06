@@ -38,4 +38,24 @@ namespace edgenetswitch
         return epoll_fd_.valid();
     }
 
+    void EpollManager::add(int fd, std::uint32_t events)
+    {
+        epoll_event event{};
+        event.events = events;
+        event.data.fd = fd;
+
+        if (::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, fd, &event) < 0)
+        {
+            throw std::runtime_error("epoll add failed");
+        }
+    }
+
+    void EpollManager::remove(int fd)
+    {
+        if (::epoll_ctl(epoll_fd_.get(), EPOLL_CTL_DEL, fd, nullptr) < 0)
+        {
+            throw std::runtime_error("epoll remove failed");
+        }
+    }
+
 } // namespace edgenetswitch
