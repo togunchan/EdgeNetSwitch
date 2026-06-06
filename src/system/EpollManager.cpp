@@ -2,6 +2,7 @@
 
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FdType.hpp"
+#include "system/EpollEvent.hpp"
 
 #include <stdexcept>
 #include <sys/epoll.h>
@@ -56,6 +57,33 @@ namespace edgenetswitch
         {
             throw std::runtime_error("epoll remove failed");
         }
+    }
+
+    std::vector<EpollEvent> EpollManager::wait(int timeout_ms)
+    {
+        constexpr int MaxEvents = 64;
+
+        epoll_event native_events[MaxEvents]{};
+
+        const int ready_count = ::epoll_wait(epoll_fd_.get(), native_events, MaxEvents, timeout_ms);
+
+        if (ready_count < 0) {
+            throw std::runtime_error("epoll wait failed");
+        }
+
+        std::vector<EpollEvent> events;
+        events.reserve(ready_count);
+
+        for (int i = 0; i < ready_count; ++i)
+        {
+            EpollEvent event;
+            event.fd = native_events[i].data.fd;
+            event.events = native_events[i].events;
+
+            events.push_back(event);
+        }
+
+        return events;
     }
 
 } // namespace edgenetswitch
