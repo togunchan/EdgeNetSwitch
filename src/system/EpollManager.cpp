@@ -4,6 +4,7 @@
 #include "edgenetswitch/system/FdType.hpp"
 #include "system/EpollEvent.hpp"
 
+#include <cerrno>
 #include <stdexcept>
 #include <sys/epoll.h>
 
@@ -65,9 +66,20 @@ namespace edgenetswitch
 
         epoll_event native_events[MaxEvents]{};
 
-        const int ready_count = ::epoll_wait(epoll_fd_.get(), native_events, MaxEvents, timeout_ms);
+        int ready_count = 0;
 
-        if (ready_count < 0) {
+        while (true) {
+            ready_count = ::epoll_wait(epoll_fd_.get(), native_events, MaxEvents, timeout_ms);
+
+            if (ready_count >= 0)
+            {
+                break;
+            }
+
+            if (errno == EINTR)
+            {
+                continue;
+            }
             throw std::runtime_error("epoll wait failed");
         }
 
