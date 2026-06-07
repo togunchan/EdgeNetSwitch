@@ -1,9 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/system/FdRecord.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FdType.hpp"
-#include "edgenetswitch/system/FileDescriptor.hpp"
+#include "edgenetswitch/system/fd/FdRecord.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
+#include "edgenetswitch/system/fd/FileDescriptor.hpp"
 
 #include <cerrno>
 #include <fcntl.h>

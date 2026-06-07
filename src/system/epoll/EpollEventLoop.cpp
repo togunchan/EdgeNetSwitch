@@ -1,5 +1,5 @@
-#include "edgenetswitch/system/EpollEventLoop.hpp"
-#include "edgenetswitch/system/EpollManager.hpp"
+#include "edgenetswitch/system/epoll/EpollEventLoop.hpp"
+#include "edgenetswitch/system/epoll/EpollManager.hpp"
 
 namespace edgenetswitch
 {

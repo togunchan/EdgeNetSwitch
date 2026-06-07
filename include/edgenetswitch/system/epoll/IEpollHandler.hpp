@@ -1,6 +1,6 @@
 #pragma once
 
-#include "edgenetswitch/system/EpollEvent.hpp"
+#include "edgenetswitch/system/epoll/EpollEvent.hpp"
 
 namespace edgenetswitch
 {

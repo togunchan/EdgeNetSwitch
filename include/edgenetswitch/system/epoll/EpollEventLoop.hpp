@@ -1,7 +1,7 @@
 #pragma once
 
-#include "edgenetswitch/system/EpollManager.hpp"
-#include "edgenetswitch/system/IEpollHandler.hpp"
+#include "edgenetswitch/system/epoll/EpollManager.hpp"
+#include "edgenetswitch/system/epoll/IEpollHandler.hpp"
 #include <map>
 namespace edgenetswitch
 {

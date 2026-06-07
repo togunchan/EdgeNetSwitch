@@ -108,7 +108,7 @@ Deleting the build directory is only required for:
 - path migration issues between host and container
 
 This configures and builds EdgeNetSwitch using the Ubuntu toolchain. Linux-only
-sources such as `src/system/EventFd.cpp` are compiled in this environment.
+sources such as `src/system/event_source/EventFd.cpp` are compiled in this environment.
 
 ---
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "edgenetswitch/system/EpollEvent.hpp"
-#include "edgenetswitch/system/FileDescriptor.hpp"
+#include "edgenetswitch/system/epoll/EpollEvent.hpp"
+#include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include <cstdint>
 #include <vector>
 

@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "edgenetswitch/system/EpollManager.hpp"
-#include "edgenetswitch/system/EventFd.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
+#include "edgenetswitch/system/epoll/EpollManager.hpp"
+#include "edgenetswitch/system/event_source/EventFd.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
 
 #include <sys/epoll.h>
 

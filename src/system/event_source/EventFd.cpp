@@ -1,7 +1,7 @@
-#include "edgenetswitch/system/EventFd.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FdType.hpp"
-#include "edgenetswitch/system/FileDescriptor.hpp"
+#include "edgenetswitch/system/event_source/EventFd.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
+#include "edgenetswitch/system/fd/FileDescriptor.hpp"
 
 #include <cerrno>
 #include <cstdint>
@@ -25,7 +25,7 @@ namespace edgenetswitch
             return fd;
         }
     } // namespace
-      //
+    
     EventFd::EventFd(FdRegistry *registry) : fd_(createEventFd(), registry, FdType::EventFd) {}
 
     int EventFd::fd() const noexcept

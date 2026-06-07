@@ -124,7 +124,7 @@ The daemon target keeps the source Linux-gated:
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(EdgeNetSwitchDaemon
         PRIVATE
-            src/system/EventFd.cpp
+            src/system/event_source/EventFd.cpp
     )
 endif()
 ```
@@ -245,7 +245,7 @@ compilation database.
 One include error remained:
 
 ```text
-'edgenetswitch/system/EventFd.hpp' file not found
+'edgenetswitch/system/event_source/EventFd.hpp' file not found
 ```
 
 The compile command was correct. The include path was present. The file existed.

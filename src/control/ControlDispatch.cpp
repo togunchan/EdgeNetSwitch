@@ -9,8 +9,8 @@
 #include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
-#include "edgenetswitch/system/FdState.hpp"
-#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/fd/FdState.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 
 namespace edgenetswitch::control

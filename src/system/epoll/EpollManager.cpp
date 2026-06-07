@@ -1,8 +1,8 @@
-#include "edgenetswitch/system/EpollManager.hpp"
+#include "edgenetswitch/system/epoll/EpollManager.hpp"
 
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FdType.hpp"
-#include "edgenetswitch/system/EpollEvent.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
+#include "edgenetswitch/system/epoll/EpollEvent.hpp"
 
 #include <cerrno>
 #include <stdexcept>

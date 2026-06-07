@@ -1,7 +1,7 @@
 #pragma once
 
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FileDescriptor.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FileDescriptor.hpp"
 
 #include <cstdint>
 

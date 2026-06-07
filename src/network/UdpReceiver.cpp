@@ -9,8 +9,8 @@
 #include "edgenetswitch/network/IngressMode.hpp"
 #include "edgenetswitch/packet/PacketParser.hpp"
 #include "edgenetswitch/packet/PacketValidator.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/fcntl.h>

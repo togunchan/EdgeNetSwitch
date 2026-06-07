@@ -1,7 +1,7 @@
 #pragma once
 
-#include "edgenetswitch/system/FdState.hpp"
-#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/fd/FdState.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
 
 namespace edgenetswitch
 {

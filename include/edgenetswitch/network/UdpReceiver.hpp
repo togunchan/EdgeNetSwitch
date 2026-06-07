@@ -6,8 +6,8 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/network/IngressMode.hpp"
 #include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
-#include "edgenetswitch/system/FileDescriptor.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FileDescriptor.hpp"
 
 namespace edgenetswitch
 {

@@ -190,16 +190,16 @@ add_executable(EdgeNetSwitchDaemon
     src/network/UdpReceiver.cpp
     src/replay/ReplayRecorder.cpp
     src/replay/ReplayPlayer.cpp
-    src/system/FileDescriptor.cpp
-    src/system/FdRegistry.cpp
+    src/system/fd/FileDescriptor.cpp
+    src/system/fd/FdRegistry.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(EdgeNetSwitchDaemon
         PRIVATE
-            src/system/EventFd.cpp
-            src/system/EpollManager.cpp
-            src/system/EpollEventLoop.cpp
+            src/system/event_source/EventFd.cpp
+            src/system/epoll/EpollManager.cpp
+            src/system/epoll/EpollEventLoop.cpp
     )
 endif()
 
@@ -649,8 +649,8 @@ if(BUILD_TESTING)
 
     add_executable(FileDescriptorTests
         tests/file_descriptor_tests.cpp
-        src/system/FileDescriptor.cpp
-        src/system/FdRegistry.cpp
+        src/system/fd/FileDescriptor.cpp
+        src/system/fd/FdRegistry.cpp
     )
 
     target_link_libraries(FileDescriptorTests
@@ -671,10 +671,10 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     add_executable(EpollManagerTests
         tests/epoll_manager_tests.cpp
-        src/system/EpollManager.cpp
-        src/system/EventFd.cpp
-        src/system/FileDescriptor.cpp
-        src/system/FdRegistry.cpp
+        src/system/epoll/EpollManager.cpp
+        src/system/event_source/EventFd.cpp
+        src/system/fd/FileDescriptor.cpp
+        src/system/fd/FdRegistry.cpp
     )
 
     target_link_libraries(EpollManagerTests
@@ -701,7 +701,7 @@ if(BUILD_TESTING)
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
         src/runtime/SnapshotPublisher.cpp
-        src/system/FdRegistry.cpp
+        src/system/fd/FdRegistry.cpp
     )
 
     target_link_libraries(ControlTests

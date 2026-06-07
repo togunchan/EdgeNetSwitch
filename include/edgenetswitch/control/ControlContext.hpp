@@ -2,7 +2,7 @@
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
-#include "edgenetswitch/system/FdRegistry.hpp"
+#include "edgenetswitch/system/fd/FdRegistry.hpp"
 
 namespace edgenetswitch::daemon
 {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "edgenetswitch/system/FdRecord.hpp"
-#include "edgenetswitch/system/FdState.hpp"
-#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/fd/FdRecord.hpp"
+#include "edgenetswitch/system/fd/FdState.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
 
 #include <mutex>
 #include <unordered_map>

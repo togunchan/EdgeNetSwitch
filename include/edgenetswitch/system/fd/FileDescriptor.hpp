@@ -1,6 +1,6 @@
 #pragma once
 
-#include "edgenetswitch/system/FdType.hpp"
+#include "edgenetswitch/system/fd/FdType.hpp"
 namespace edgenetswitch
 {
     class FdRegistry;
