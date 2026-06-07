@@ -19,4 +19,9 @@ namespace edgenetswitch
     {
         running_ = false;
     }
+
+    void EpollEventLoop::registerHandler(int fd, IEpollHandler *handler)
+    {
+        handlers_[fd] = handler;
+    }
 } // namespace edgenetswitch
