@@ -2,7 +2,7 @@
 
 #include "edgenetswitch/system/FdRegistry.hpp"
 #include "edgenetswitch/system/FdType.hpp"
-#include "system/EpollEvent.hpp"
+#include "edgenetswitch/system/EpollEvent.hpp"
 
 #include <cerrno>
 #include <stdexcept>

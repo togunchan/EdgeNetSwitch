@@ -198,6 +198,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_sources(EdgeNetSwitchDaemon
         PRIVATE
             src/system/EventFd.cpp
+            src/system/EpollManager.cpp
+            src/system/EpollEventLoop.cpp
     )
 endif()
 
