@@ -12,6 +12,18 @@ namespace edgenetswitch
         while (running_)
         {
             const auto events = epoll_.wait(1000);
+
+            for (const auto& event : events)
+            {
+                auto it = handlers_.find(event.fd);
+                if (it == handlers_.end())
+                {
+                    // Ignore events for unregistered file descriptors.
+                    continue;
+                }
+
+                it->second->onEvent(event);
+            }
         }
     }
 
