@@ -200,6 +200,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             src/system/event_source/EventFd.cpp
             src/system/epoll/EpollManager.cpp
             src/system/epoll/EpollEventLoop.cpp
+            src/system/wakeup/ShutdownWakeupHandler.cpp
     )
 endif()
 

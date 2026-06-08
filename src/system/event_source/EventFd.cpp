@@ -25,7 +25,7 @@ namespace edgenetswitch
             return fd;
         }
     } // namespace
-    
+
     EventFd::EventFd(FdRegistry *registry) : fd_(createEventFd(), registry, FdType::EventFd) {}
 
     int EventFd::fd() const noexcept
@@ -91,7 +91,5 @@ namespace edgenetswitch
             throw std::runtime_error("eventfd drain failed");
         }
     }
-
-
 
 } // namespace edgenetswitch
