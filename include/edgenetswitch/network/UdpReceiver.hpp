@@ -20,8 +20,12 @@ namespace edgenetswitch
         void start();
         void stop();
 
+        [[nodiscard]]
+        int fd() const noexcept;
+
     private:
         void run();
+        void handleReadable();
 
         MessagingBus &bus_;
         int port_;

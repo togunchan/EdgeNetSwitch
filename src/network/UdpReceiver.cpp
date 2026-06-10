@@ -114,106 +114,119 @@ namespace edgenetswitch
 
     void UdpReceiver::run()
     {
-        char buffer[1024];
 
         while (running_)
         {
-            sockaddr_in client_addr{};
-            socklen_t addr_len = sizeof(client_addr);
-
-            ssize_t len = recvfrom(socket_fd_.get(), buffer, sizeof(buffer), 0,
-                                   (struct sockaddr *)&client_addr, &addr_len);
-
-            if (len < 0)
-            {
-                if (errno == EBADF)
-                    break; // socket closed, exit thread cleanly
-
-                if (errno == EINTR)
-                    continue;
-
-                // Non-blocking sockets return EAGAIN/EWOULDBLOCK when no packet is available yet.
-                // This is an expected runtime condition, not a fatal socket error.
-                if (errno == EAGAIN || errno == EWOULDBLOCK)
-                {
-                    Message msg{};
-                    msg.type = MessageType::IngressIdlePoll;
-                    msg.timestamp_ms = nowMs();
-                    msg.payload = IngressIdlePoll{msg.timestamp_ms};
-                    bus_.publish(std::move(msg));
-
-                    continue;
-                }
-
-                Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
-                continue;
-            }
-
-            const auto ingress_ts = nowNs();
-
-            std::string data(buffer, static_cast<size_t>(len));
-            Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
-
-            auto lifecycle_id = lifecycle_gen_.next();
-            auto packet = parsePacket(data);
-            packet.lifecycle_id = lifecycle_id;
-            packet.ingress_timestamp_ns = ingress_ts;
-
-            if (!packet.valid)
-            {
-                const auto ts = nowMs();
-
-                Message dropMsg{};
-                dropMsg.type = MessageType::PacketDropped;
-                dropMsg.timestamp_ms = ts;
-                dropMsg.payload = PacketDropped{.reason = PacketDropReason::ParseError,
-                                                .timestamp_ms = ts,
-                                                .packet_id = 0,
-                                                .lifecycle_id = lifecycle_id};
-
-                bus_.publish(std::move(dropMsg));
-                Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
-                continue;
-            }
-            packet.timestamp_ms = nowMs();
-            packet.wire_size = static_cast<std::uint32_t>(len);
-
-            // inet_ntoa() uses a static internal buffer (not thread-safe),
-            // but we immediately copy into std::string, so it's safe here.
-            packet.source_ip = inet_ntoa(client_addr.sin_addr);
-            // Convert port from network byte order (big-endian) to host byte order.
-            // Network protocols always use big-endian, but the host machine
-            // (e.g. x86) is typically little-endian.
-            packet.source_port = ntohs(client_addr.sin_port);
-
-            auto result = PacketValidator::validate(packet);
-
-            if (!result.accepted)
-            {
-                const auto ts = nowMs();
-
-                Message dropMsg{};
-                dropMsg.type = MessageType::PacketDropped;
-                dropMsg.timestamp_ms = ts;
-                dropMsg.payload = PacketDropped{.reason = PacketDropReason::ValidationError,
-                                                .timestamp_ms = ts,
-                                                .packet_id = packet.id,
-                                                .lifecycle_id = lifecycle_id};
-
-                bus_.publish(std::move(dropMsg));
-                Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" +
-                             toString(result.reason));
-                continue;
-            }
-
-            sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
-
-            Message msg{};
-            msg.type = MessageType::PacketRx;
-            msg.timestamp_ms = packet.timestamp_ms;
-            msg.payload = std::move(packet);
-
-            bus_.publish(std::move(msg));
+            handleReadable();
         }
+    }
+
+    void UdpReceiver::handleReadable()
+    {
+        char buffer[1024];
+        sockaddr_in client_addr{};
+        socklen_t addr_len = sizeof(client_addr);
+
+        ssize_t len = recvfrom(socket_fd_.get(), buffer, sizeof(buffer), 0,
+                               (struct sockaddr *)&client_addr, &addr_len);
+
+        if (len < 0)
+        {
+            if (errno == EBADF)
+            {
+                running_ = false;
+                return; // socket closed, exit thread cleanly
+            }
+
+            if (errno == EINTR)
+                return;
+
+            // Non-blocking sockets return EAGAIN/EWOULDBLOCK when no packet is available yet.
+            // This is an expected runtime condition, not a fatal socket error.
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                Message msg{};
+                msg.type = MessageType::IngressIdlePoll;
+                msg.timestamp_ms = nowMs();
+                msg.payload = IngressIdlePoll{msg.timestamp_ms};
+                bus_.publish(std::move(msg));
+
+                return;
+            }
+
+            Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
+            return;
+        }
+
+        const auto ingress_ts = nowNs();
+
+        std::string data(buffer, static_cast<size_t>(len));
+        Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
+
+        auto lifecycle_id = lifecycle_gen_.next();
+        auto packet = parsePacket(data);
+        packet.lifecycle_id = lifecycle_id;
+        packet.ingress_timestamp_ns = ingress_ts;
+
+        if (!packet.valid)
+        {
+            const auto ts = nowMs();
+
+            Message dropMsg{};
+            dropMsg.type = MessageType::PacketDropped;
+            dropMsg.timestamp_ms = ts;
+            dropMsg.payload = PacketDropped{.reason = PacketDropReason::ParseError,
+                                            .timestamp_ms = ts,
+                                            .packet_id = 0,
+                                            .lifecycle_id = lifecycle_id};
+
+            bus_.publish(std::move(dropMsg));
+            Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
+            return;
+        }
+        packet.timestamp_ms = nowMs();
+        packet.wire_size = static_cast<std::uint32_t>(len);
+
+        // inet_ntoa() uses a static internal buffer (not thread-safe),
+        // but we immediately copy into std::string, so it's safe here.
+        packet.source_ip = inet_ntoa(client_addr.sin_addr);
+        // Convert port from network byte order (big-endian) to host byte order.
+        // Network protocols always use big-endian, but the host machine
+        // (e.g. x86) is typically little-endian.
+        packet.source_port = ntohs(client_addr.sin_port);
+
+        auto result = PacketValidator::validate(packet);
+
+        if (!result.accepted)
+        {
+            const auto ts = nowMs();
+
+            Message dropMsg{};
+            dropMsg.type = MessageType::PacketDropped;
+            dropMsg.timestamp_ms = ts;
+            dropMsg.payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                            .timestamp_ms = ts,
+                                            .packet_id = packet.id,
+                                            .lifecycle_id = lifecycle_id};
+
+            bus_.publish(std::move(dropMsg));
+            Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" +
+                         toString(result.reason));
+            return;
+        }
+
+        sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
+
+        Message msg{};
+        msg.type = MessageType::PacketRx;
+        msg.timestamp_ms = packet.timestamp_ms;
+        msg.payload = std::move(packet);
+
+        bus_.publish(std::move(msg));
+    }
+
+    int UdpReceiver::fd() const noexcept
+    {
+        return socket_fd_.get();
     }
 } // namespace edgenetswitch
