@@ -192,6 +192,7 @@ add_executable(EdgeNetSwitchDaemon
     src/replay/ReplayPlayer.cpp
     src/system/fd/FileDescriptor.cpp
     src/system/fd/FdRegistry.cpp
+    src/control/ControlServer.cpp
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -200,6 +201,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             src/system/event_source/EventFd.cpp
             src/system/epoll/EpollManager.cpp
             src/system/epoll/EpollEventLoop.cpp
+            src/system/epoll/UdpReadyHandler.cpp
+            src/system/epoll/ControlReadyHandler.cpp
             src/system/wakeup/ShutdownWakeupHandler.cpp
     )
 endif()
@@ -681,6 +684,7 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(EpollManagerTests
         PRIVATE
             Catch2::Catch2WithMain
+            Logger
     )
 
     target_include_directories(EpollManagerTests

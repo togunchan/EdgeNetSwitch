@@ -30,6 +30,8 @@ namespace edgenetswitch
     {
     }
 
+    EpollManager::~EpollManager() = default;
+
     int EpollManager::fd() const noexcept
     {
         return epoll_fd_.get();

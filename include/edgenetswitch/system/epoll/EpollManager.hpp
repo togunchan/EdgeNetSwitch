@@ -14,8 +14,9 @@ namespace edgenetswitch
     public:
         EpollManager(FdRegistry *registry);
 
-        [[nodiscard]]
-        int fd() const noexcept;
+        ~EpollManager();
+
+        [[nodiscard]] int fd() const noexcept;
 
         [[nodiscard]]
         bool valid() const noexcept;

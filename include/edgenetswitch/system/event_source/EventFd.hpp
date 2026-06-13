@@ -12,6 +12,8 @@ namespace edgenetswitch
     public:
         explicit EventFd(FdRegistry *registry = nullptr);
 
+        ~EventFd();
+
         EventFd(const EventFd &) = delete;
         EventFd &operator=(const EventFd &) = delete;
 

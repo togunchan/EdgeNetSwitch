@@ -1,6 +1,7 @@
 #include "edgenetswitch/system/epoll/EpollEventLoop.hpp"
 #include "edgenetswitch/system/epoll/EpollManager.hpp"
 #include "edgenetswitch/system/wakeup/ShutdownWakeupHandler.hpp"
+#include <atomic>
 #include <sys/epoll.h>
 
 namespace edgenetswitch
@@ -14,9 +15,9 @@ namespace edgenetswitch
 
     void EpollEventLoop::run()
     {
-        running_ = true;
+        running_.store(true, std::memory_order_relaxed);
 
-        while (running_)
+        while (running_.load(std::memory_order_acquire))
         {
             const auto events = epoll_.wait(1000);
 
@@ -36,8 +37,12 @@ namespace edgenetswitch
 
     void EpollEventLoop::stop()
     {
-        running_ = false;
-        shutdown_event_.notify();
+        const bool was_running = running_.exchange(false, std::memory_order_acq_rel);
+
+        if (was_running)
+        {
+            shutdown_event_.notify();
+        }
     }
 
     void EpollEventLoop::registerHandler(int fd, IEpollHandler *handler)

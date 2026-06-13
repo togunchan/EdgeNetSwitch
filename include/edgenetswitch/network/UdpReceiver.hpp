@@ -17,11 +17,14 @@ namespace edgenetswitch
         UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry, IngressMode ingress_mode = IngressMode::Blocking);
         ~UdpReceiver();
 
+        void initializeSocket();
         void start();
         void stop();
 
         [[nodiscard]]
         int fd() const noexcept;
+
+        void processReadableEvent();
 
     private:
         void run();

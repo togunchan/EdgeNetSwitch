@@ -1,6 +1,7 @@
 #include "edgenetswitch/network/UdpReceiver.hpp"
 
 #include <cstring>
+#include <fcntl.h>
 #include <iostream>
 
 #include "edgenetswitch/core/Logger.hpp"
@@ -30,11 +31,8 @@ namespace edgenetswitch
         stop();
     }
 
-    void UdpReceiver::start()
+    void UdpReceiver::initializeSocket()
     {
-        if (running_)
-            return;
-
         // Create UDP socket
         const int raw_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (raw_fd < 0)
@@ -83,6 +81,14 @@ namespace edgenetswitch
         {
             Logger::info("UDP receiver running in blocking mode");
         }
+    }
+
+    void UdpReceiver::start()
+    {
+        if (running_)
+            return;
+
+        initializeSocket();
 
         running_ = true;
 
@@ -94,22 +100,29 @@ namespace edgenetswitch
 
     void UdpReceiver::stop()
     {
-        if (!running_)
+        if (!running_ && !socket_fd_.valid() && !worker_.joinable())
+        {
             return;
+        }
+
+        Logger::info("[UDP][SHUTDOWN] Stop requested");
 
         running_ = false;
 
         if (socket_fd_.valid())
         {
             socket_fd_.reset();
+            Logger::debug("[UDP][SHUTDOWN] Socket closed");
         }
 
         if (worker_.joinable())
         {
+            Logger::info("[UDP][SHUTDOWN] Waiting for worker thread");
             worker_.join();
+            Logger::info("[UDP][SHUTDOWN] Worker thread stopped");
         }
 
-        std::cout << "[UDP] Stopped\n";
+        Logger::info("[UDP][SHUTDOWN] UDP receiver stopped");
     }
 
     void UdpReceiver::run()
@@ -228,5 +241,10 @@ namespace edgenetswitch
     int UdpReceiver::fd() const noexcept
     {
         return socket_fd_.get();
+    }
+
+    void UdpReceiver::processReadableEvent()
+    {
+        handleReadable();
     }
 } // namespace edgenetswitch

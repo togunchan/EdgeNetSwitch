@@ -4,6 +4,7 @@
 #include "edgenetswitch/system/epoll/IEpollHandler.hpp"
 #include "edgenetswitch/system/event_source/EventFd.hpp"
 #include "edgenetswitch/system/wakeup/ShutdownWakeupHandler.hpp"
+#include <atomic>
 #include <map>
 namespace edgenetswitch
 {
@@ -21,7 +22,7 @@ namespace edgenetswitch
 
     private:
         EpollManager &epoll_;
-        bool running_{false};
+        std::atomic<bool> running_{false};
         std::map<int, IEpollHandler *> handlers_;
         EventFd shutdown_event_;
         ShutdownWakeupHandler shutdown_handler_;

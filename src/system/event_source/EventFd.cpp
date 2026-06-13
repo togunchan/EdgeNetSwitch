@@ -28,6 +28,8 @@ namespace edgenetswitch
 
     EventFd::EventFd(FdRegistry *registry) : fd_(createEventFd(), registry, FdType::EventFd) {}
 
+    EventFd::~EventFd() = default;
+
     int EventFd::fd() const noexcept
     {
         return fd_.get();
