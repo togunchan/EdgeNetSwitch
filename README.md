@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.2-orange)
+![Version](https://img.shields.io/badge/version-v1.9.3-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -16,62 +16,61 @@ That makes packet loss, shutdown races, observability gaps, and lifecycle accoun
 
 ## Solution
 
-EdgeNetSwitch isolates the runtime as a deterministic execution environment with explicit control over concurrency, timing, and system behavior. It models packet ingress, switching decisions, MAC learning, telemetry, health, control-plane inspection, overload behavior, and shutdown sequencing inside a controlled C++20 daemon.
+EdgeNetSwitch models a small network runtime in C++20. UDP traffic enters the daemon, packets move through a synchronous event bus and bounded worker handoffs, switching decisions are computed in-process, and runtime state is inspected through a UNIX-socket control plane.
+
+The runtime keeps concurrency, resource ownership, overload behavior, telemetry, replay, failure injection, and shutdown sequencing explicit so they can be tested before hardware or kernel integration hides the failure modes.
 
 The system enables early validation of:
-- event flow through the runtime
-- concurrency boundaries and ownership
-- Linux resource ownership and descriptor lifecycle behavior
-- overload and backpressure behavior
-- lifecycle correctness guarantees
-- replay-verifiable deterministic behavior
-- deterministic MAC learning and forwarding decisions
-- observability without timing side effects
+- how packets enter, move through, and complete inside the daemon
+- where concurrency, ownership, and bounded handoff boundaries sit
+- how overload, descriptor lifecycle, and shutdown behavior are reported
+- whether replay, failure-injection, and switching scenarios produce expected outcomes
+- what telemetry and control-plane views expose while the runtime is active
 
 ## Key Engineering Highlights
 
-- Deterministic runtime ownership: execution is driven by a tick loop, not external I/O.
-- Determinism over throughput: the system prefers explicit loss to hidden latency or blocking.
-- Explicit concurrency model: `MessagingBus` dispatch is synchronous and thread-affine; asynchronous behavior exists only at bounded queue handoffs.
-- Lifecycle-based correctness: `lifecycle_id` is runtime identity, while `packet.id` remains payload identity.
-- Auditable packet invariants: `terminal_events == processed_packets + total_drops` and `ingress_packets == terminal_events + pending_terminal_events`.
-- Replay-verifiable lifecycle accounting: replay records capture ingress only, and runtime outcomes are validated through observable terminal history.
-- Lifecycle-keyed deterministic failure replay: injected faults can be reproduced without depending on externally supplied packet IDs.
-- Switching runtime integration: packets carrying MAC metadata and ingress ports produce deterministic drop, flood, or known-unicast forwarding decisions.
-- Control-plane packet injection: synthetic packet commands enter through the UNIX socket, command dispatch, `MessagingBus`, and normal packet processor path.
-- Forwarding observability: `ForwardingDecisionMade` events expose runtime decisions before packets reach their terminal processed event.
-- Linux resource ownership modeling: UDP and UNIX sockets are wrapped in move-only RAII descriptors with runtime-visible descriptor state.
-- File descriptor lifecycle inspection: `fd-status` exposes descriptor number, state, and type through the control plane.
-- Bounded async processing: packet admission has a fixed capacity, explicit `QueueOverflow` drops, backlog visibility, and drop attribution by reason.
-- Runtime latency instrumentation: packets carry ingress timestamps and expose ingress-to-processed latency through packet statistics.
-- Ingress-mode analysis: blocking and non-blocking UDP ingress behavior can be compared through runtime-visible latency, gap, duplicate-event, and idle-poll metrics.
-- Observability-first design: telemetry export runs off the runtime path, and the control plane exposes structured snapshots plus narrow synthetic runtime probes.
-- Production-grade lifecycle management: RAII cleanup, deterministic FD teardown, coordinated shutdown, and thread ownership discipline.
+- Deterministic runtime ownership: the main loop owns telemetry, health, and snapshots, while `epoll` owns readiness-driven I/O dispatch.
+- Synchronous event backbone: `MessagingBus` runs subscribers on the publisher's thread; async behavior is limited to explicit bounded handoffs.
+- Explicit overload behavior: packet admission uses a fixed-capacity queue with `QueueOverflow` drops instead of hidden latency or unbounded buffering.
+- Packet lifecycle accounting: `lifecycle_id` tracks runtime-owned packet identity, while terminal events and ownership rules validate lifecycle behavior.
+- Replay validation: recorded ingress traffic can be replayed and compared against expected runtime outcomes.
+- Deterministic failure injection: reproducible faults exercise loss, delay, rejection, and replay-validation paths without relying on randomness.
+- Switching simulation: packets with MAC and ingress-port metadata produce deterministic learning, drop, flood, or known-unicast decisions.
+- Forwarding observability: `ForwardingDecisionMade` exposes switching results before the packet reaches its terminal processed event.
+- Control-plane capabilities: UNIX-socket commands expose snapshots, config, health, packet stats, descriptor state, MAC-table state, and synthetic packet injection.
+- Linux readiness model: UDP ingress, the control listener, and shutdown wakeups dispatch through `epoll` handlers.
+- Eventfd shutdown wakeup: `eventfd` interrupts `epoll_wait()` so shutdown does not depend on timeout expiry or unrelated I/O.
+- Runtime observability: telemetry export runs off the runtime path, while packet stats expose rates, latency, drops, drain counts, and lifecycle state.
 
 ## Latest Runtime Evolution
 
-v1.9.2 extends the runtime analysis surface from descriptor ownership into ingress timing behavior. Packet ingress now records `ingress_timestamp_ns`, and `packet-stats` / `packet-stats:json` expose ingress-to-processed latency metrics for accepted packets.
+v1.9.3 moves UDP ingress and the UNIX control listener into an `epoll`-based readiness loop. File-descriptor-specific work is isolated behind `IEpollHandler`, with `UdpReadyHandler`, `ControlReadyHandler`, and `ShutdownWakeupHandler` handling UDP packets, control connections, and stop requests.
 
-The release compares blocking UDP ingress with non-blocking polling mode. Blocking ingress kept idle CPU behavior efficient but showed higher periodic latency. Non-blocking polling reduced periodic latency while making idle polling cost visible through the new `idle_polls` metric.
+UDP ingress now uses non-blocking readiness and bounded receive-queue draining after `EPOLLIN`. The shutdown path uses `eventfd` to wake `epoll_wait()`, allowing the runtime to stop without waiting for unrelated I/O or timeout expiry.
 
-Lifecycle invariants remained stable during the measured runs: `duplicate_events` stayed zero, processing gaps were observable and transient, and parse failures remained explicit. This gives the runtime a measured baseline before readiness-based ingress work such as `epoll`.
+The v1.9.3 investigation reran ingress benchmarks under equivalent logging conditions. Logging was the dominant benchmark variable; with `warn` logging, blocking `recvfrom()`, non-blocking polling, and epoll readiness landed in the same throughput class. Blocking `recvfrom()` was slightly faster in the single-socket burst benchmark, but epoll remained the preferred architecture because it avoids idle polling, preserves lifecycle accounting, and provides the readiness foundation for multi-descriptor Linux runtime behavior.
 
 ## Architecture Overview
 
 ```mermaid
 flowchart LR
     subgraph Data["Data Plane"]
-        Traffic["Network Traffic"] --> Ingress["Packet Ingress"]
-        Ingress --> Admission["Bounded Admission"]
+        Traffic["UDP Traffic"] --> Epoll["epoll Readiness Loop"]
+        Epoll --> Udp["UdpReadyHandler"]
+        Udp --> Bus
     end
 
     subgraph Core["Deterministic Runtime Core"]
-        Tick["Deterministic Tick Loop (Execution Owner)"] --> Bus["MessagingBus"]
-        Admission --> Bus
-        Bus --> Switching["SwitchForwardingEngine"]
+        Tick["Telemetry / Health Tick Loop"] --> State["Runtime State"]
+        Bus["MessagingBus"] --> Failure["FailureInjector"]
+        Failure --> Admission["Bounded Admission"]
+        Admission --> WorkQueue["Packet Work Queue"]
+        WorkQueue --> Switching["SwitchForwardingEngine"]
         Switching --> Decisions["ForwardingDecisionMade"]
-        Bus --> Outcomes["Packet Outcomes"]
-        Bus --> State["Runtime State"]
+        Decisions --> Outcomes
+        WorkQueue --> Outcomes["PacketProcessed / PacketDropped"]
+        Outcomes --> Stats["PacketStats"]
+        Stats --> State
     end
 
     subgraph Replay["Replay Validation"]
@@ -82,28 +81,34 @@ flowchart LR
     end
 
     subgraph Control["Control Plane"]
-        Operator["CLI / UNIX Socket"] --> Queries["Inspection Commands"]
-        Operator --> Injection["Synthetic Packet Injection"]
+        Operator["CLI / UNIX Socket"] --> ControlReady["ControlReadyHandler"]
+        ControlReady --> Queries["Inspection Commands"]
+        ControlReady --> Injection["Synthetic Packet Injection"]
         Queries -. snapshots .-> State
         Queries -. mac table .-> Switching
+        Queries -. fd status .-> Fds["FdRegistry"]
         Injection -. PacketRx .-> Bus
     end
 
     Bus -. PacketRx .-> Recorder
     Player -. PacketRx .-> Bus
 
-    subgraph Async["Explicit Async I/O Boundaries"]
-        Admission --> WorkQueue["Packet Work Queue"]
+    subgraph Shutdown["Shutdown Wakeup"]
+        Signal["SIGINT / SIGTERM"] --> EventFd["eventfd"]
+        EventFd --> Epoll
+    end
+
+    subgraph Async["Explicit Async Boundaries"]
         State --> ExportQueue["Telemetry Export Queue"]
         ExportQueue --> Exporters["File / Memory / Stdout"]
     end
 ```
 
-The main tradeoff is intentional: the runtime prioritizes deterministic execution and explicit loss over hidden blocking, unbounded buffering, or timing side effects from observability paths.
+The main tradeoff is intentional: the runtime prioritizes explicit ownership, lifecycle accounting, and bounded handoff points over hidden blocking, unbounded buffering, or timing side effects from observability paths.
 
-The system enforces a strict boundary between deterministic execution and external I/O, ensuring predictable behavior under load. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
+The system enforces a strict boundary between runtime decisions and external I/O. `epoll` handles descriptor readiness, `MessagingBus` handles in-process events, and bounded queues define explicit async handoff points. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
 
-Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during deterministic shutdown.
+Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during shutdown.
 
 ## Tech Stack
 
@@ -111,6 +116,7 @@ Runtime resource ownership follows the same rule: POSIX descriptors are explicit
 - Catch2 for unit coverage
 - nlohmann/json for configuration and control responses
 - POSIX UDP sockets and UNIX domain sockets
+- Linux `epoll` and `eventfd`
 - `std::thread`, `std::mutex`, `std::condition_variable`, atomics
 - macOS and Linux targets
 
@@ -155,7 +161,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, and terminal observable ordering.
+The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, terminal observable ordering, descriptor ownership, and Linux `epoll` / `eventfd` behavior.
 
 ## Quick Demo (No Hardware Required)
 
@@ -171,6 +177,7 @@ Inspect system state:
 echo "1.2|packet-stats:json" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|fd-status" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|fd-status:json" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|show-config:json" | nc -U /tmp/edgenetswitch.sock
 ```
 
 Inject deterministic switching traffic through the control plane:
@@ -178,10 +185,11 @@ Inject deterministic switching traffic through the control plane:
 ```bash
 echo "1.2|send-packet:broadcast" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|send-packet:learn" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|send-packet:topology-demo" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|show:mac-table" | nc -U /tmp/edgenetswitch.sock
 ```
 
-This demonstrates deterministic packet ingestion, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, and runtime inspection without hardware dependencies.
+This demonstrates readiness-driven UDP ingress, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, configuration inspection, and packet-path telemetry without hardware dependencies.
 
 ## Contributing
 

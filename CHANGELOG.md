@@ -18,8 +18,30 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.0` integrates deterministic switching semantics into the runtime path, connecting control-plane packet injection, MAC learning, forwarding decisions, and MAC table inspection through the existing event architecture.
 - `v1.9.1` adds file descriptor lifecycle management, making Linux resource ownership, descriptor state, and teardown correctness visible through the runtime control plane.
 - `v1.9.2` adds runtime ingress latency instrumentation and compares blocking UDP ingress with non-blocking polling behavior, including idle-poll visibility and sanitizer-enabled validation.
+- `v1.9.3` migrates UDP and control-plane readiness into an `epoll` event loop with handler-based dispatch, bounded UDP draining, and `eventfd` shutdown wakeup.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.3] - Epoll Event Loop and Shutdown Wakeup
+
+### Added
+- Added an `epoll`-based event loop for readiness-driven runtime I/O.
+- Added an epoll handler abstraction so descriptor-specific work is dispatched through `IEpollHandler`.
+- Added readiness-driven UDP processing through `UdpReadyHandler` and non-blocking receive handling.
+- Added `eventfd` wakeup integration through the shutdown event source and `ShutdownWakeupHandler`.
+- Added control-plane readiness handling for the UNIX control listener through the epoll loop.
+
+### Improved
+- Improved UDP receive behavior by draining the receive queue after readiness up to a fixed per-wakeup budget.
+- Improved shutdown behavior by waking `epoll_wait()` explicitly instead of relying on timeout expiry or unrelated descriptor readiness.
+- Improved runtime responsiveness by removing idle polling from the active epoll runtime path.
+- Improved packet-path benchmark methodology by rerunning ingress measurements under equivalent logging conditions.
+
+### Investigation
+- Reran the v1.9.3 ingress benchmarks after epoll integration.
+- Identified packet-path logging as a dominant benchmark variable in the earlier comparison.
+- Confirmed that blocking `recvfrom()`, non-blocking polling, and epoll readiness landed in the same throughput class when measured under equivalent `warn` logging conditions.
+- Kept epoll as the preferred runtime architecture even though blocking `recvfrom()` was slightly faster in the single-socket burst benchmark, because epoll removes idle polling, supports coordinated multi-descriptor readiness, and integrates deterministic shutdown wakeup.
 
 ## [v1.9.2] - Blocking vs Non-Blocking Runtime Analysis
 
