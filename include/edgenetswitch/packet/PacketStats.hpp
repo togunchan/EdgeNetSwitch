@@ -30,7 +30,7 @@ namespace edgenetswitch
         std::uint64_t max_processing_latency_ns{0};
         std::uint64_t average_processing_latency_ns{0};
         std::uint64_t latency_samples{0};
-        std::uint64_t idle_polls{0};
+        std::uint64_t udp_drain_completions{0};
     };
 
     class PacketStats
@@ -62,7 +62,7 @@ namespace edgenetswitch
         std::atomic_uint64_t total_processing_latency_ns_{0};
         std::atomic_uint64_t max_processing_latency_ns_{0};
         std::atomic_uint64_t latency_samples_{0};
-        std::atomic_uint64_t idle_polls_{0};
+        std::atomic_uint64_t udp_drain_completions_{0};
     };
 
 } // namespace edgenetswitch

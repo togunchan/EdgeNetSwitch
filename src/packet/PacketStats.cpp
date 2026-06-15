@@ -87,7 +87,7 @@ namespace edgenetswitch
                           ingress_packets_.fetch_add(1, std::memory_order_relaxed);
                       });
         bus.subscribe(MessageType::IngressIdlePoll, [this](const Message &msg)
-                      { idle_polls_.fetch_add(1, std::memory_order_relaxed); });
+                      { udp_drain_completions_.fetch_add(1, std::memory_order_relaxed); });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
@@ -121,7 +121,7 @@ namespace edgenetswitch
         const auto total_latency = total_processing_latency_ns_.load(std::memory_order_relaxed);
         const auto max_latency = max_processing_latency_ns_.load(std::memory_order_relaxed);
         const auto latency_samples = latency_samples_.load(std::memory_order_relaxed);
-        const auto idle_polls = idle_polls_.load(std::memory_order_relaxed);
+        const auto udp_drain_completions = udp_drain_completions_.load(std::memory_order_relaxed);
 
         std::uint64_t average_latency = 0;
 
@@ -147,7 +147,7 @@ namespace edgenetswitch
                              .max_processing_latency_ns = max_latency,
                              .average_processing_latency_ns = average_latency,
                              .latency_samples = latency_samples,
-                             .idle_polls = idle_polls};
+                             .udp_drain_completions = udp_drain_completions};
     }
 
     std::uint64_t PacketStats::rxPackets() const

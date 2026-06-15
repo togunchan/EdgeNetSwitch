@@ -11,10 +11,19 @@
 
 namespace edgenetswitch
 {
+    enum class UdpReadResult
+    {
+        PacketProcessed,
+        NoData,
+        Closed,
+        Error
+    };
+
     class UdpReceiver
     {
     public:
-        UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry, IngressMode ingress_mode = IngressMode::Blocking);
+        UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry,
+                    IngressMode ingress_mode = IngressMode::Blocking);
         ~UdpReceiver();
 
         void initializeSocket();
@@ -28,7 +37,7 @@ namespace edgenetswitch
 
     private:
         void run();
-        void handleReadable();
+        UdpReadResult handleReadable();
 
         MessagingBus &bus_;
         int port_;

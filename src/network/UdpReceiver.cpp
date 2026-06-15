@@ -134,7 +134,7 @@ namespace edgenetswitch
         }
     }
 
-    void UdpReceiver::handleReadable()
+    UdpReadResult UdpReceiver::handleReadable()
     {
         char buffer[1024];
         sockaddr_in client_addr{};
@@ -148,11 +148,11 @@ namespace edgenetswitch
             if (errno == EBADF)
             {
                 running_ = false;
-                return; // socket closed, exit thread cleanly
+                return UdpReadResult::Closed; // socket closed, exit thread cleanly
             }
 
             if (errno == EINTR)
-                return;
+                return UdpReadResult::NoData;
 
             // Non-blocking sockets return EAGAIN/EWOULDBLOCK when no packet is available yet.
             // This is an expected runtime condition, not a fatal socket error.
@@ -164,11 +164,11 @@ namespace edgenetswitch
                 msg.payload = IngressIdlePoll{msg.timestamp_ms};
                 bus_.publish(std::move(msg));
 
-                return;
+                return UdpReadResult::NoData;
             }
 
             Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
-            return;
+            return UdpReadResult::Error;
         }
 
         const auto ingress_ts = nowNs();
@@ -194,8 +194,8 @@ namespace edgenetswitch
                                             .lifecycle_id = lifecycle_id};
 
             bus_.publish(std::move(dropMsg));
-            Logger::warn("[DROP][UDP][PARSE] Packet rejected: " + data);
-            return;
+            Logger::warn("[DROP][UDP][PARSE] len=" + std::to_string(len) + " data=[" + data + "]");
+            return UdpReadResult::PacketProcessed;
         }
         packet.timestamp_ms = nowMs();
         packet.wire_size = static_cast<std::uint32_t>(len);
@@ -225,7 +225,7 @@ namespace edgenetswitch
             bus_.publish(std::move(dropMsg));
             Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" +
                          toString(result.reason));
-            return;
+            return UdpReadResult::PacketProcessed;
         }
 
         sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
@@ -236,6 +236,8 @@ namespace edgenetswitch
         msg.payload = std::move(packet);
 
         bus_.publish(std::move(msg));
+
+        return UdpReadResult::PacketProcessed;
     }
 
     int UdpReceiver::fd() const noexcept
@@ -245,6 +247,37 @@ namespace edgenetswitch
 
     void UdpReceiver::processReadableEvent()
     {
-        handleReadable();
+        constexpr std::size_t MaxPacketsPerWakeup = 256;
+
+        std::size_t packets_processed = 0;
+
+        while (packets_processed < MaxPacketsPerWakeup)
+        {
+            auto result = handleReadable();
+
+            if (result == UdpReadResult::PacketProcessed)
+            {
+                ++packets_processed;
+            }
+            if (result == UdpReadResult::NoData)
+            {
+                Logger::debug("[UDP] drained queue packets=" + std::to_string(packets_processed));
+                break;
+            }
+
+            if (result == UdpReadResult::Closed)
+            {
+                break;
+            }
+
+            if (result == UdpReadResult::Error)
+            {
+                break;
+            }
+        }
+        if (packets_processed == MaxPacketsPerWakeup)
+        {
+            Logger::debug("[UDP] receive budget exhausted");
+        }
     }
 } // namespace edgenetswitch
