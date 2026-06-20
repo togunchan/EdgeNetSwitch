@@ -55,26 +55,12 @@ using namespace edgenetswitch::telemetry;
 // anonymous namespace: restricts symbols to this translation unit only
 namespace
 {
-    ShutdownRequest *g_shutdownRequest = nullptr;
+    volatile sig_atomic_t g_receivedSignal = 0;
     edgenetswitch::daemon::SnapshotPublisher g_snapshotPublisher;
 
     void handleSignal(int signal)
     {
-        if (g_shutdownRequest == nullptr)
-        {
-            return;
-        }
-
-        if (signal == SIGINT)
-        {
-            g_shutdownRequest->request(ShutdownReason::SignalInterrupt);
-            return;
-        }
-        else if (signal == SIGTERM)
-        {
-            g_shutdownRequest->request(ShutdownReason::SignalTerminate);
-            return;
-        }
+        g_receivedSignal = signal;
     }
 
     void installSignalHandlers()
@@ -250,7 +236,6 @@ int main(int argc, char *argv[])
     }
 
     ShutdownRequest shutdownRequest;
-    g_shutdownRequest = &shutdownRequest;
     installSignalHandlers();
 
     core::Config cfg = core::ConfigLoader::loadFromFile("config/edgenetswitch.json");
@@ -474,6 +459,18 @@ int main(int argc, char *argv[])
         // keep the process alive until a stop is requested.
         while (!shutdownRequest.isRequested())
         {
+            if (g_receivedSignal == SIGINT)
+            {
+                shutdownRequest.request(ShutdownReason::SignalInterrupt);
+                break;
+            }
+
+            if (g_receivedSignal == SIGTERM)
+            {
+                shutdownRequest.request(ShutdownReason::SignalTerminate);
+                break;
+            }
+
             telemetry.onTick();
             healthMonitor.onTick();
 
