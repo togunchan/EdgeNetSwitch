@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 namespace edgenetswitch
 {
     enum class ShutdownReason
@@ -9,4 +10,6 @@ namespace edgenetswitch
         SignalInterrupt,
         SignalTerminate
     };
+
+    std::string_view toString(ShutdownReason reason);
 } // namespace edgenetswitch

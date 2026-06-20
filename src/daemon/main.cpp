@@ -517,6 +517,7 @@ int main(int argc, char *argv[])
 
         runtimeState = RuntimeState::Stopping;
         Logger::warn("Stop requested. Shutting down...");
+        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
         const auto status =
             statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
         Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
