@@ -13,6 +13,8 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/runtime/HealthMonitor.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "edgenetswitch/runtime/ShutdownReason.hpp"
+#include "edgenetswitch/runtime/ShutdownRequest.hpp"
 #include "edgenetswitch/switching/ForwardingDecision.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
 #include "edgenetswitch/switching/InterfaceRegistry.hpp"
@@ -35,7 +37,6 @@
 #include <fcntl.h>
 #include <nlohmann/json.hpp>
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstring>
@@ -54,12 +55,26 @@ using namespace edgenetswitch::telemetry;
 // anonymous namespace: restricts symbols to this translation unit only
 namespace
 {
-    std::atomic_bool g_stopRequested{false};
+    ShutdownRequest *g_shutdownRequest = nullptr;
     edgenetswitch::daemon::SnapshotPublisher g_snapshotPublisher;
 
-    void handleSignal(int)
+    void handleSignal(int signal)
     {
-        g_stopRequested.store(true, std::memory_order_relaxed);
+        if (g_shutdownRequest == nullptr)
+        {
+            return;
+        }
+
+        if (signal == SIGINT)
+        {
+            g_shutdownRequest->request(ShutdownReason::SignalInterrupt);
+            return;
+        }
+        else if (signal == SIGTERM)
+        {
+            g_shutdownRequest->request(ShutdownReason::SignalTerminate);
+            return;
+        }
     }
 
     void installSignalHandlers()
@@ -233,6 +248,9 @@ int main(int argc, char *argv[])
         Logger::shutdown();
         return ok ? 0 : 1;
     }
+
+    ShutdownRequest shutdownRequest;
+    g_shutdownRequest = &shutdownRequest;
     installSignalHandlers();
 
     core::Config cfg = core::ConfigLoader::loadFromFile("config/edgenetswitch.json");
@@ -340,9 +358,9 @@ int main(int argc, char *argv[])
 
 #ifdef EDGENETSWITCH_DEBUG_READER
         std::thread debugReaderThread(
-            []
+            [&shutdownRequest]
             {
-                while (!g_stopRequested.load())
+                while (!shutdownRequest.isRequested())
                 {
                     auto snap = g_snapshotPublisher.load();
                     if (snap)
@@ -454,7 +472,7 @@ int main(int argc, char *argv[])
         runtimeState = RuntimeState::Running;
 
         // keep the process alive until a stop is requested.
-        while (!g_stopRequested.load(std::memory_order_relaxed))
+        while (!shutdownRequest.isRequested())
         {
             telemetry.onTick();
             healthMonitor.onTick();
@@ -472,7 +490,7 @@ int main(int argc, char *argv[])
             debugReaderThread.join();
         }
 #endif
-        
+
         Logger::info("[SHUTDOWN] Stopping epoll event loop");
         epollLoop.stop();
         Logger::info("[SHUTDOWN] Epoll event loop stop requested");
