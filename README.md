@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.3-orange)
+![Version](https://img.shields.io/badge/version-v1.9.4-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -40,68 +40,53 @@ The system enables early validation of:
 - Control-plane capabilities: UNIX-socket commands expose snapshots, config, health, packet stats, descriptor state, MAC-table state, and synthetic packet injection.
 - Linux readiness model: UDP ingress, the control listener, and shutdown wakeups dispatch through `epoll` handlers.
 - Eventfd shutdown wakeup: `eventfd` interrupts `epoll_wait()` so shutdown does not depend on timeout expiry or unrelated I/O.
+- Signal-aware shutdown: `SIGINT` and `SIGTERM` are recorded as distinct typed shutdown reasons and surfaced in runtime logs.
 - Runtime observability: telemetry export runs off the runtime path, while packet stats expose rates, latency, drops, drain counts, and lifecycle state.
 
 ## Latest Runtime Evolution
 
-v1.9.3 moves UDP ingress and the UNIX control listener into an `epoll`-based readiness loop. File-descriptor-specific work is isolated behind `IEpollHandler`, with `UdpReadyHandler`, `ControlReadyHandler`, and `ShutdownWakeupHandler` handling UDP packets, control connections, and stop requests.
+v1.9.4 makes daemon shutdown signal-aware without replacing the epoll runtime architecture. `ShutdownReason` and `ShutdownRequest` now model why shutdown was requested, and runtime logs distinguish local interrupt shutdown from service-style termination.
 
-UDP ingress now uses non-blocking readiness and bounded receive-queue draining after `EPOLLIN`. The shutdown path uses `eventfd` to wake `epoll_wait()`, allowing the runtime to stop without waiting for unrelated I/O or timeout expiry.
+Signal handlers are installed with `sigaction()`. The handler records only the received signal in a `volatile sig_atomic_t`; the main daemon loop converts that value into `SignalInterrupt` for `SIGINT` or `SignalTerminate` for `SIGTERM` before entering the existing deterministic shutdown path.
 
-The v1.9.3 investigation reran ingress benchmarks under equivalent logging conditions. Logging was the dominant benchmark variable; with `warn` logging, blocking `recvfrom()`, non-blocking polling, and epoll readiness landed in the same throughput class. Blocking `recvfrom()` was slightly faster in the single-socket burst benchmark, but epoll remained the preferred architecture because it avoids idle polling, preserves lifecycle accounting, and provides the readiness foundation for multi-descriptor Linux runtime behavior.
+The v1.9.4 investigation also documents the current shutdown latency boundary: signal capture is immediate, but the daemon acts on it when the main loop reaches the next tick. See `docs/investigations/v1.9.4-signal-runtime-investigation.md` for the implementation notes and validation results.
 
 ## Architecture Overview
 
 ```mermaid
 flowchart LR
-    subgraph Data["Data Plane"]
-        Traffic["UDP Traffic"] --> Epoll["epoll Readiness Loop"]
-        Epoll --> Udp["UdpReadyHandler"]
-        Udp --> Bus
+    subgraph Inputs["External Inputs"]
+        UdpTraffic["UDP Traffic"]
+        ControlInput["CLI / Control Plane"]
+        Signals["Signals"]
     end
 
-    subgraph Core["Deterministic Runtime Core"]
-        Tick["Telemetry / Health Tick Loop"] --> State["Runtime State"]
-        Bus["MessagingBus"] --> Failure["FailureInjector"]
-        Failure --> Admission["Bounded Admission"]
-        Admission --> WorkQueue["Packet Work Queue"]
-        WorkQueue --> Switching["SwitchForwardingEngine"]
-        Switching --> Decisions["ForwardingDecisionMade"]
-        Decisions --> Outcomes
-        WorkQueue --> Outcomes["PacketProcessed / PacketDropped"]
-        Outcomes --> Stats["PacketStats"]
-        Stats --> State
+    subgraph Coordination["Runtime Coordination"]
+        MainLoop["Daemon Main Loop"]
+        EpollLoop["Epoll Event Loop"]
+        Bus["MessagingBus"]
     end
 
-    subgraph Replay["Replay Validation"]
-        Recorder["ReplayRecorder"] -. ingress .-> Records["ReplayRecord Stream"]
-        Records --> Player["ReplayPlayer"]
-        Outcomes --> Collector["ReplayOutcomeCollector"]
-        Collector --> History["Terminal Observable History"]
+    subgraph Processing["Processing"]
+        PacketProcessing["Packet Processing"]
+        Switching["Switching Engine"]
     end
 
-    subgraph Control["Control Plane"]
-        Operator["CLI / UNIX Socket"] --> ControlReady["ControlReadyHandler"]
-        ControlReady --> Queries["Inspection Commands"]
-        ControlReady --> Injection["Synthetic Packet Injection"]
-        Queries -. snapshots .-> State
-        Queries -. mac table .-> Switching
-        Queries -. fd status .-> Fds["FdRegistry"]
-        Injection -. PacketRx .-> Bus
+    subgraph Observability["Observability"]
+        Telemetry["Telemetry"]
+        Snapshots["Runtime Snapshots"]
     end
 
-    Bus -. PacketRx .-> Recorder
-    Player -. PacketRx .-> Bus
-
-    subgraph Shutdown["Shutdown Wakeup"]
-        Signal["SIGINT / SIGTERM"] --> EventFd["eventfd"]
-        EventFd --> Epoll
-    end
-
-    subgraph Async["Explicit Async Boundaries"]
-        State --> ExportQueue["Telemetry Export Queue"]
-        ExportQueue --> Exporters["File / Memory / Stdout"]
-    end
+    UdpTraffic --> EpollLoop
+    ControlInput --> EpollLoop
+    Signals --> MainLoop
+    MainLoop --> Bus
+    EpollLoop --> Bus
+    Bus --> PacketProcessing
+    PacketProcessing --> Switching
+    MainLoop --> Telemetry
+    MainLoop --> Snapshots
+    PacketProcessing --> Snapshots
 ```
 
 The main tradeoff is intentional: the runtime prioritizes explicit ownership, lifecycle accounting, and bounded handoff points over hidden blocking, unbounded buffering, or timing side effects from observability paths.
@@ -109,6 +94,13 @@ The main tradeoff is intentional: the runtime prioritizes explicit ownership, li
 The system enforces a strict boundary between runtime decisions and external I/O. `epoll` handles descriptor readiness, `MessagingBus` handles in-process events, and bounded queues define explicit async handoff points. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
 
 Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during shutdown.
+
+## Focused Architecture Documents
+
+- [Runtime flow](docs/runtime/flow.md) covers the daemon loop, `MessagingBus`, packet lifecycle, replay hooks, telemetry ticks, and signal-aware shutdown behavior.
+- [Epoll shutdown wakeup flow](docs/system/epoll-shutdown-wakeup-flow.md) explains the `epoll` / `eventfd` wakeup path used to stop the readiness loop.
+- [v1.9.4 signal shutdown investigation](docs/investigations/v1.9.4-signal-runtime-investigation.md) documents the signal-safe boundary, `SIGINT` / `SIGTERM` differentiation, and shutdown latency finding.
+- [Daemon and MessagingBus architecture](docs/architecture/daemon.md) describes daemon composition, event dispatch, and control-plane integration.
 
 ## Tech Stack
 

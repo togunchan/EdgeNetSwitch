@@ -180,6 +180,8 @@ target_compile_features(Switching PUBLIC cxx_std_20)
 add_executable(EdgeNetSwitchDaemon
     src/daemon/main.cpp
     src/control/ControlDispatch.cpp
+    src/runtime/ShutdownReason.cpp
+    src/runtime/ShutdownRequest.cpp
     src/runtime/RuntimeStatusBuilder.cpp
     src/runtime/SnapshotPublisher.cpp
     src/packet/PacketParser.cpp

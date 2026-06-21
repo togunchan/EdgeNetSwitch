@@ -19,8 +19,36 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.1` adds file descriptor lifecycle management, making Linux resource ownership, descriptor state, and teardown correctness visible through the runtime control plane.
 - `v1.9.2` adds runtime ingress latency instrumentation and compares blocking UDP ingress with non-blocking polling behavior, including idle-poll visibility and sanitizer-enabled validation.
 - `v1.9.3` migrates UDP and control-plane readiness into an `epoll` event loop with handler-based dispatch, bounded UDP draining, and `eventfd` shutdown wakeup.
+- `v1.9.4` makes daemon shutdown signal-aware by recording typed shutdown reasons, distinguishing `SIGINT` from `SIGTERM`, and keeping signal handling inside a minimal `sig_atomic_t` boundary.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.4] - Signal-Aware Runtime Shutdown
+
+### Added
+- Added `ShutdownReason` as the typed runtime model for shutdown origin.
+- Added `ShutdownRequest` as the request/query abstraction for shutdown state.
+- Added shutdown reason string conversion support through `ShutdownReason::toString`.
+- Added shutdown reason visibility in runtime logs.
+- Added the v1.9.4 investigation document: `docs/investigations/v1.9.4-signal-runtime-investigation.md`.
+
+### Changed
+- Replaced legacy global stop-flag usage in the daemon loop with `ShutdownRequest`.
+- Reworked signal-aware shutdown so the signal handler only records the received signal in `volatile sig_atomic_t`.
+- Moved typed shutdown request mutation into normal runtime context.
+- Replaced `signal()` / `std::signal` usage with `sigaction()` for explicit Linux signal handler registration.
+- Differentiated `SIGINT` shutdown as `SignalInterrupt` and `SIGTERM` shutdown as `SignalTerminate`.
+
+### Validated
+- Validated deterministic shutdown behavior through the existing daemon shutdown path.
+- Validated the `SIGINT` shutdown path with `Ctrl+C` and confirmed `SignalInterrupt` logging.
+- Validated the `SIGTERM` shutdown path with `kill -TERM <pid>` and confirmed `SignalTerminate` logging.
+
+### Engineering Notes
+- The signal handler does not perform runtime orchestration or touch complex runtime objects.
+- `volatile sig_atomic_t` is used only as the minimal signal-safe handoff point; it is not treated as a general synchronization primitive.
+- Shutdown latency remains tied to the daemon tick cadence. In the documented `tick_ms=5000` experiment, shutdown proceeded when the next loop iteration observed the recorded signal.
+- This milestone adds shutdown reason observability without replacing the v1.9.3 epoll/eventfd shutdown wakeup architecture.
 
 ## [v1.9.3] - Epoll Event Loop and Shutdown Wakeup
 

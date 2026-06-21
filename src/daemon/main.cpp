@@ -13,6 +13,8 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/runtime/HealthMonitor.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
+#include "edgenetswitch/runtime/ShutdownReason.hpp"
+#include "edgenetswitch/runtime/ShutdownRequest.hpp"
 #include "edgenetswitch/switching/ForwardingDecision.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
 #include "edgenetswitch/switching/InterfaceRegistry.hpp"
@@ -32,14 +34,15 @@
 #include "telemetry/InMemoryTelemetryExporter.hpp"
 #include "telemetry/TelemetryExportManager.hpp"
 
+#include <cstddef>
 #include <fcntl.h>
 #include <nlohmann/json.hpp>
 
-#include <atomic>
 #include <chrono>
 #include <csignal>
 #include <cstring>
 #include <memory>
+#include <signal.h>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -54,18 +57,25 @@ using namespace edgenetswitch::telemetry;
 // anonymous namespace: restricts symbols to this translation unit only
 namespace
 {
-    std::atomic_bool g_stopRequested{false};
+    volatile sig_atomic_t g_receivedSignal = 0;
     edgenetswitch::daemon::SnapshotPublisher g_snapshotPublisher;
 
-    void handleSignal(int)
+    void handleSignal(int signal)
     {
-        g_stopRequested.store(true, std::memory_order_relaxed);
+        g_receivedSignal = signal;
     }
 
     void installSignalHandlers()
     {
-        std::signal(SIGINT, handleSignal);
-        std::signal(SIGTERM, handleSignal);
+        struct sigaction action
+        {
+        };
+        action.sa_flags = 0;
+        action.sa_handler = handleSignal;
+        sigemptyset(&action.sa_mask);
+
+        sigaction(SIGINT, &action, nullptr);
+        sigaction(SIGTERM, &action, nullptr);
     }
 
     constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
@@ -233,6 +243,8 @@ int main(int argc, char *argv[])
         Logger::shutdown();
         return ok ? 0 : 1;
     }
+
+    ShutdownRequest shutdownRequest;
     installSignalHandlers();
 
     core::Config cfg = core::ConfigLoader::loadFromFile("config/edgenetswitch.json");
@@ -340,9 +352,9 @@ int main(int argc, char *argv[])
 
 #ifdef EDGENETSWITCH_DEBUG_READER
         std::thread debugReaderThread(
-            []
+            [&shutdownRequest]
             {
-                while (!g_stopRequested.load())
+                while (!shutdownRequest.isRequested())
                 {
                     auto snap = g_snapshotPublisher.load();
                     if (snap)
@@ -454,8 +466,20 @@ int main(int argc, char *argv[])
         runtimeState = RuntimeState::Running;
 
         // keep the process alive until a stop is requested.
-        while (!g_stopRequested.load(std::memory_order_relaxed))
+        while (!shutdownRequest.isRequested())
         {
+            if (g_receivedSignal == SIGINT)
+            {
+                shutdownRequest.request(ShutdownReason::SignalInterrupt);
+                break;
+            }
+
+            if (g_receivedSignal == SIGTERM)
+            {
+                shutdownRequest.request(ShutdownReason::SignalTerminate);
+                break;
+            }
+
             telemetry.onTick();
             healthMonitor.onTick();
 
@@ -472,7 +496,7 @@ int main(int argc, char *argv[])
             debugReaderThread.join();
         }
 #endif
-        
+
         Logger::info("[SHUTDOWN] Stopping epoll event loop");
         epollLoop.stop();
         Logger::info("[SHUTDOWN] Epoll event loop stop requested");
@@ -499,6 +523,7 @@ int main(int argc, char *argv[])
 
         runtimeState = RuntimeState::Stopping;
         Logger::warn("Stop requested. Shutting down...");
+        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
         const auto status =
             statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
         Logger::info("RuntimeStatus: state=" + stateToString(status.state) +

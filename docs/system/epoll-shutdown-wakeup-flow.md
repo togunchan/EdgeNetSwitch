@@ -48,6 +48,12 @@ shutdown_event_.notify()
     creates kernel-visible fd readiness so epoll_wait() returns
 ```
 
+In v1.9.4, signal-aware shutdown reason capture happens before this epoll
+wakeup path. `SIGINT` and `SIGTERM` are recorded by the daemon signal handler
+and converted into a `ShutdownRequest` by the main loop. The signal reason
+model explains why shutdown was requested; the `eventfd` wakeup path explains
+how the blocked epoll thread is made runnable so it can stop.
+
 ## Architecture Overview
 
 The shutdown wakeup design uses a Linux `eventfd` as an epoll-visible stop
