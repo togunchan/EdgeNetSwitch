@@ -1,7 +1,7 @@
 # EdgeNetSwitch Runtime Flow
 
 ## Program entry point (`src/daemon/main.cpp`)
-- Installs `SIGINT`/`SIGTERM` handlers that flip an atomic flag, letting the main loop exit cooperatively.
+- Installs `SIGINT`/`SIGTERM` handlers with `sigaction()`; the handler records the received signal and the main loop converts it into a `ShutdownRequest`.
 - Loads `Config` from `config/edgenetswitch.json`, then initializes the `Logger`.
 - Builds the shared `MessagingBus`, then constructs `Telemetry`, `HealthMonitor`, the switching registry/MAC table, `SwitchForwardingEngine`, and `PacketProcessor`.
 - Registers bus subscribers for `SystemStart`, `SystemShutdown`, `Telemetry`, and `HealthStatus`; the `Telemetry` subscriber also forwards a heartbeat into `HealthMonitor`.
@@ -116,7 +116,7 @@ This design validates deterministic runtime behavior by requiring replayed execu
 Lifecycle-based failure replay uses deterministic `FailureInjector` rules keyed by `lifecycle_id`. Failures are not serialized into replay records. The same ingress stream plus the same deterministic failure policy must produce the same processed/drop terminal sequence.
 
 ## Daemon main loop execution order
-- Loop condition: runs while the atomic stop flag remains `false`.
+- Loop condition: runs while `ShutdownRequest::isRequested()` remains `false`.
 - Per iteration order:
   1. `telemetry.onTick()` publishes `Telemetry`.
   2. `health.onTick()` evaluates heartbeat freshness and may publish `HealthStatus`.
@@ -124,7 +124,9 @@ Lifecycle-based failure replay uses deterministic `FailureInjector` rules keyed 
 - The ordering guarantees heartbeats arrive before each health check within the same cycle.
 
 ## Graceful shutdown via signals
-- `SIGINT` or `SIGTERM` sets the stop flag; the loop exits on the next check.
+- `SIGINT` or `SIGTERM` is captured by a `sigaction()` handler that records only the received signal in `volatile sig_atomic_t`.
+- The main loop observes the recorded signal on the next tick and converts it into a `ShutdownRequest`.
+- `SIGINT` is logged as `SignalInterrupt`; `SIGTERM` is logged as `SignalTerminate`.
 - After exit, `main` publishes `SystemShutdown`, logs the transition, and shuts down the logger, ensuring buffered output is flushed before process termination.
 
 ## Why this architecture is event-driven
