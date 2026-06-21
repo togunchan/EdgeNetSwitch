@@ -34,6 +34,7 @@
 #include "telemetry/InMemoryTelemetryExporter.hpp"
 #include "telemetry/TelemetryExportManager.hpp"
 
+#include <cstddef>
 #include <fcntl.h>
 #include <nlohmann/json.hpp>
 
@@ -41,6 +42,7 @@
 #include <csignal>
 #include <cstring>
 #include <memory>
+#include <signal.h>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -65,8 +67,15 @@ namespace
 
     void installSignalHandlers()
     {
-        std::signal(SIGINT, handleSignal);
-        std::signal(SIGTERM, handleSignal);
+        struct sigaction action
+        {
+        };
+        action.sa_flags = 0;
+        action.sa_handler = handleSignal;
+        sigemptyset(&action.sa_mask);
+
+        sigaction(SIGINT, &action, nullptr);
+        sigaction(SIGTERM, &action, nullptr);
     }
 
     constexpr const char *CONTROL_SOCKET_PATH = "/tmp/edgenetswitch.sock";
