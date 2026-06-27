@@ -8,26 +8,10 @@
 
 namespace edgenetswitch
 {
-    PacketProcessor::PacketProcessor(MessagingBus &bus)
-        : PacketProcessor(bus, failure::FailureInjector{failure::FailureConfig{}})
-    {
-    }
-
-    PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine)
-        : PacketProcessor(bus, forwarding_engine,
-                          failure::FailureInjector{failure::FailureConfig{}})
-    {
-    }
-
-    PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine,
+    PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine *forwarding_engine,
+                                     transport::TransportManager *transport_manager,
                                      failure::FailureInjector injector)
-        : PacketProcessor(bus, std::move(injector))
-    {
-        forwarding_engine_ = &forwarding_engine;
-    }
-
-    PacketProcessor::PacketProcessor(MessagingBus &bus, failure::FailureInjector injector)
-        : bus_(bus), injector_(std::move(injector))
+        : bus_(bus), injector_(std::move(injector)), forwarding_engine_(forwarding_engine)
     {
         bus_.subscribe(
             MessageType::PacketRx,

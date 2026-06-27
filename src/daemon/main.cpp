@@ -284,7 +284,7 @@ int main(int argc, char *argv[])
 
         MacTable macTable(1024);
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
-        PacketProcessor packetProcessor(bus, forwardingEngine, failureInjector);
+        PacketProcessor packetProcessor(bus, &forwardingEngine, nullptr, failureInjector);
         PacketStats packetStats(bus);
         EpollManager epollManager(&fd_registry);
         EpollEventLoop epollLoop(epollManager, &fd_registry);

@@ -159,7 +159,7 @@ namespace
         explicit ForwardingRuntimeFixture(InterfaceRegistry registry = makeInterfaces())
             : interfaces(std::move(registry)),
               forwarding_engine(mac_table, interfaces),
-              processor(bus, forwarding_engine)
+              processor(bus, &forwarding_engine)
         {
             events.subscribe(bus);
         }
