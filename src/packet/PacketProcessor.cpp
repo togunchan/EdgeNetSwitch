@@ -1,4 +1,5 @@
 #include "edgenetswitch/packet/PacketProcessor.hpp"
+#include "edgenetswitch/core/Logger.hpp"
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
@@ -11,7 +12,8 @@ namespace edgenetswitch
     PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine *forwarding_engine,
                                      transport::TransportManager *transport_manager,
                                      failure::FailureInjector injector)
-        : bus_(bus), injector_(std::move(injector)), forwarding_engine_(forwarding_engine)
+        : bus_(bus), injector_(std::move(injector)), forwarding_engine_(forwarding_engine),
+          transport_manager_(transport_manager)
     {
         bus_.subscribe(
             MessageType::PacketRx,
@@ -140,6 +142,22 @@ namespace edgenetswitch
         {
             auto decision = forwarding_engine_->processPacket(
                 processedPacket, *processedPacket.ingress_port, processedPacket.timestamp_ms);
+
+            if (transport_manager_)
+            {
+                if (!decision.egress_ports.empty())
+                {
+                    for (auto port : decision.egress_ports)
+                    {
+                        [[maybe_unused]]
+                        auto result = transport_manager_->transmit(port, processedPacket);
+                    }
+                }
+                else
+                {
+                    Logger::debug("Transport dispatch skipped: no egress ports");
+                }
+            }
 
             Message forwarding{};
             forwarding.type = MessageType::ForwardingDecisionMade;

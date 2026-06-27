@@ -28,6 +28,8 @@
 #include "edgenetswitch/system/fd/FdType.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include "edgenetswitch/telemetry/Telemetry.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
+#include "edgenetswitch/transport/VirtualPortBackend.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 #include "telemetry/FileTelemetryExporter.hpp"
@@ -284,7 +286,14 @@ int main(int argc, char *argv[])
 
         MacTable macTable(1024);
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
-        PacketProcessor packetProcessor(bus, &forwardingEngine, nullptr, failureInjector);
+        transport::TransportManager transportManager;
+
+        transportManager.registerBackend(1, std::make_unique<transport::VirtualPortBackend>());
+        transportManager.registerBackend(3, std::make_unique<transport::VirtualPortBackend>());
+        transportManager.registerBackend(4, std::make_unique<transport::VirtualPortBackend>());
+        transportManager.registerBackend(5, std::make_unique<transport::VirtualPortBackend>());
+
+        PacketProcessor packetProcessor(bus, &forwardingEngine, &transportManager, failureInjector);
         PacketStats packetStats(bus);
         EpollManager epollManager(&fd_registry);
         EpollEventLoop epollLoop(epollManager, &fd_registry);

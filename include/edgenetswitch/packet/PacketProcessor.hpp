@@ -17,12 +17,11 @@ namespace edgenetswitch
     class PacketProcessor
     {
     public:
-        explicit PacketProcessor(
-            MessagingBus &bus,
-            SwitchForwardingEngine *forwarding_engine = nullptr,
-            transport::TransportManager *transport_manager = nullptr,
-            failure::FailureInjector injector =
-                failure::FailureInjector{failure::FailureConfig{}});
+        explicit PacketProcessor(MessagingBus &bus,
+                                 SwitchForwardingEngine *forwarding_engine = nullptr,
+                                 transport::TransportManager *transport_manager = nullptr,
+                                 failure::FailureInjector injector = failure::FailureInjector{
+                                     failure::FailureConfig{}});
         ~PacketProcessor();
         void processLoop();
         void processPacket(Packet processedPacket);
@@ -40,5 +39,6 @@ namespace edgenetswitch
         MessagingBus &bus_;
         failure::FailureInjector injector_;
         SwitchForwardingEngine *forwarding_engine_{nullptr};
+        transport::TransportManager *transport_manager_{nullptr};
     };
 } // namespace edgenetswitch

@@ -7,10 +7,13 @@
 #include "edgenetswitch/switching/MacAddress.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/switching/SwitchPort.hpp"
+#include "edgenetswitch/transport/PortBackend.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -171,6 +174,57 @@ namespace
         SwitchForwardingEngine forwarding_engine;
         PacketProcessor processor;
     };
+
+    class FakePortBackend final : public transport::PortBackend
+    {
+    public:
+        explicit FakePortBackend(std::uint32_t port_id) : port_id_(port_id) {}
+
+        transport::TransmitResult transmit(const Packet &packet) override
+        {
+            ++transmit_count;
+            last_packet_id = packet.id;
+            last_lifecycle_id = packet.lifecycle_id;
+
+            return transport::TransmitResult{.status = transport::TransmitStatus::Success,
+                                             .port_id = port_id_,
+                                             .bytes_transmitted = packet.payload.size()};
+        }
+
+        std::size_t transmit_count{0};
+        std::uint64_t last_packet_id{0};
+        std::uint64_t last_lifecycle_id{0};
+
+    private:
+        std::uint32_t port_id_{0};
+    };
+
+    struct TransportRuntimeFixture
+    {
+        explicit TransportRuntimeFixture(InterfaceRegistry registry = makeInterfaces())
+            : interfaces(std::move(registry)),
+              forwarding_engine(mac_table, interfaces),
+              processor(bus, &forwarding_engine, &transport_manager)
+        {
+            events.subscribe(bus);
+        }
+
+        FakePortBackend &registerBackend(std::uint32_t port_id)
+        {
+            auto backend = std::make_unique<FakePortBackend>(port_id);
+            FakePortBackend *raw_backend = backend.get();
+            transport_manager.registerBackend(port_id, std::move(backend));
+            return *raw_backend;
+        }
+
+        MessagingBus bus;
+        EventRecorder events;
+        MacTable mac_table{16};
+        InterfaceRegistry interfaces;
+        SwitchForwardingEngine forwarding_engine;
+        transport::TransportManager transport_manager;
+        PacketProcessor processor;
+    };
 } // namespace
 
 TEST_CASE("PacketProcessor emits forwarding decision before processed event",
@@ -287,4 +341,101 @@ TEST_CASE("PacketProcessor publishes drop decision for known unicast on down por
     REQUIRE(events.processed_packets.size() == 1);
     REQUIRE(events.order == std::vector<MessageType>{MessageType::ForwardingDecisionMade,
                                                      MessageType::PacketProcessed});
+}
+
+TEST_CASE("PacketProcessor dispatches known unicast to TransportManager backend",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture;
+    FakePortBackend &backend = fixture.registerBackend(4);
+    const MacAddress destination = mac("00:11:22:33:44:02");
+    fixture.mac_table.learn(destination, 4, 5);
+    const Packet packet = makePacket(6,
+                                     mac("00:11:22:33:44:01"),
+                                     destination,
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::ForwardToPorts);
+    REQUIRE(events.forwarding_events.front().egress_ports == std::vector<std::uint32_t>{4});
+    REQUIRE(backend.transmit_count == 1);
+    REQUIRE(backend.last_packet_id == packet.id);
+    REQUIRE(backend.last_lifecycle_id == packet.lifecycle_id);
+}
+
+TEST_CASE("PacketProcessor dispatches flood decision once per egress port",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture;
+    FakePortBackend &port1 = fixture.registerBackend(1);
+    FakePortBackend &port3 = fixture.registerBackend(3);
+    FakePortBackend &port4 = fixture.registerBackend(4);
+    const Packet packet = makePacket(7,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("ff:ff:ff:ff:ff:ff"),
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::Flood);
+    REQUIRE(events.forwarding_events.front().egress_ports ==
+            std::vector<std::uint32_t>{1, 3, 4});
+    REQUIRE(port1.transmit_count == 1);
+    REQUIRE(port3.transmit_count == 1);
+    REQUIRE(port4.transmit_count == 1);
+    REQUIRE(port1.last_packet_id == packet.id);
+    REQUIRE(port3.last_packet_id == packet.id);
+    REQUIRE(port4.last_packet_id == packet.id);
+    REQUIRE(port1.last_lifecycle_id == packet.lifecycle_id);
+    REQUIRE(port3.last_lifecycle_id == packet.lifecycle_id);
+    REQUIRE(port4.last_lifecycle_id == packet.lifecycle_id);
+}
+
+TEST_CASE("PacketProcessor does not dispatch drop decisions to TransportManager",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture(makeInterfacesWithDownPort());
+    FakePortBackend &backend = fixture.registerBackend(4);
+    const MacAddress destination = mac("00:11:22:33:44:02");
+    fixture.mac_table.learn(destination, 4, 5);
+    const Packet packet = makePacket(8,
+                                     mac("00:11:22:33:44:01"),
+                                     destination,
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::Drop);
+    REQUIRE(events.forwarding_events.front().egress_ports.empty());
+    REQUIRE(backend.transmit_count == 0);
+    REQUIRE(backend.last_packet_id == 0);
+    REQUIRE(backend.last_lifecycle_id == 0);
+}
+
+TEST_CASE("TransportManager reports backend unavailable for unregistered port",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    const Packet packet = makePacket(9,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(99, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::BackendUnavailable);
+    REQUIRE(result.port_id == 99);
 }
