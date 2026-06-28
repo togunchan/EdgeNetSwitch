@@ -149,8 +149,7 @@ namespace edgenetswitch
                 {
                     for (auto port : decision.egress_ports)
                     {
-                        [[maybe_unused]]
-                        auto result = transport_manager_->transmit(port, processedPacket);
+                        transport_manager_->transmit(port, processedPacket);
                     }
                 }
                 else

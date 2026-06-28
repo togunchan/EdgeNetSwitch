@@ -29,7 +29,7 @@
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include "edgenetswitch/telemetry/Telemetry.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
-#include "edgenetswitch/transport/VirtualPortBackend.hpp"
+#include "edgenetswitch/transport/UdpPortBackend.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 #include "telemetry/FileTelemetryExporter.hpp"
@@ -288,10 +288,9 @@ int main(int argc, char *argv[])
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
         transport::TransportManager transportManager;
 
-        transportManager.registerBackend(1, std::make_unique<transport::VirtualPortBackend>());
-        transportManager.registerBackend(3, std::make_unique<transport::VirtualPortBackend>());
-        transportManager.registerBackend(4, std::make_unique<transport::VirtualPortBackend>());
-        transportManager.registerBackend(5, std::make_unique<transport::VirtualPortBackend>());
+        transportManager.registerBackend(
+            1, std::make_unique<transport::UdpPortBackend>(
+                   1, transport::UdpEndpoint{"127.0.0.1", 9101}, &fd_registry));
 
         PacketProcessor packetProcessor(bus, &forwardingEngine, &transportManager, failureInjector);
         PacketStats packetStats(bus);

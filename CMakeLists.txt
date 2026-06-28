@@ -190,6 +190,7 @@ add_executable(EdgeNetSwitchDaemon
     src/packet/PacketStats.cpp
     src/packet/PacketValidator.cpp
     src/transport/TransportManager.cpp
+    src/transport/UdpPortBackend.cpp
     src/transport/VirtualPortBackend.cpp
     src/network/UdpReceiver.cpp
     src/replay/ReplayRecorder.cpp
