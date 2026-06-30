@@ -178,7 +178,12 @@ namespace
     class FakePortBackend final : public transport::PortBackend
     {
     public:
-        explicit FakePortBackend(std::uint32_t port_id) : port_id_(port_id) {}
+        explicit FakePortBackend(
+            std::uint32_t port_id,
+            transport::TransmitStatus status = transport::TransmitStatus::Success)
+            : port_id_(port_id), status_(status)
+        {
+        }
 
         transport::TransmitResult transmit(const Packet &packet) override
         {
@@ -186,9 +191,12 @@ namespace
             last_packet_id = packet.id;
             last_lifecycle_id = packet.lifecycle_id;
 
-            return transport::TransmitResult{.status = transport::TransmitStatus::Success,
+            const std::size_t bytes_transmitted =
+                status_ == transport::TransmitStatus::Success ? packet.payload.size() : 0;
+
+            return transport::TransmitResult{.status = status_,
                                              .port_id = port_id_,
-                                             .bytes_transmitted = packet.payload.size()};
+                                             .bytes_transmitted = bytes_transmitted};
         }
 
         std::size_t transmit_count{0};
@@ -197,7 +205,32 @@ namespace
 
     private:
         std::uint32_t port_id_{0};
+        transport::TransmitStatus status_{transport::TransmitStatus::Success};
     };
+
+    void registerBackend(transport::TransportManager &transport_manager,
+                         std::uint32_t port_id,
+                         transport::TransmitStatus status = transport::TransmitStatus::Success)
+    {
+        transport_manager.registerBackend(port_id,
+                                          std::make_unique<FakePortBackend>(port_id, status));
+    }
+
+    void requireCounters(const transport::TransportCounters &counters,
+                         const transport::TransportCounters &expected)
+    {
+        REQUIRE(counters.tx_packets == expected.tx_packets);
+        REQUIRE(counters.tx_bytes == expected.tx_bytes);
+        REQUIRE(counters.tx_failed == expected.tx_failed);
+        REQUIRE(counters.backend_unavailable == expected.backend_unavailable);
+        REQUIRE(counters.port_down == expected.port_down);
+        REQUIRE(counters.invalid_packet == expected.invalid_packet);
+    }
+
+    void requireCountersZero(const transport::TransportCounters &counters)
+    {
+        requireCounters(counters, {});
+    }
 
     struct TransportRuntimeFixture
     {
@@ -425,7 +458,7 @@ TEST_CASE("PacketProcessor does not dispatch drop decisions to TransportManager"
     REQUIRE(backend.last_lifecycle_id == 0);
 }
 
-TEST_CASE("TransportManager reports backend unavailable for unregistered port",
+TEST_CASE("TransportManager reports backend unavailable and updates counters",
           "[PacketForwardingRuntime][Transport]")
 {
     transport::TransportManager transport_manager;
@@ -438,4 +471,91 @@ TEST_CASE("TransportManager reports backend unavailable for unregistered port",
 
     REQUIRE(result.status == transport::TransmitStatus::BackendUnavailable);
     REQUIRE(result.port_id == 99);
+    requireCounters(transport_manager.counters(),
+                    {.tx_failed = 1, .backend_unavailable = 1});
+}
+
+TEST_CASE("TransportManager updates counters for successful transmit",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::Success);
+    const Packet packet = makePacket(10,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::Success);
+    requireCounters(transport_manager.counters(),
+                    {.tx_packets = 1, .tx_bytes = packet.payload.size()});
+}
+
+TEST_CASE("TransportManager updates counters for port down",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::PortDown);
+    const Packet packet = makePacket(12,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::PortDown);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1, .port_down = 1});
+}
+
+TEST_CASE("TransportManager updates counters for invalid packet",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::InvalidPacket);
+    const Packet packet = makePacket(13,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::InvalidPacket);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1, .invalid_packet = 1});
+}
+
+TEST_CASE("TransportManager updates counters for send failed",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::SendFailed);
+    const Packet packet = makePacket(14,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::SendFailed);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1});
+}
+
+TEST_CASE("TransportManager resetCounters clears accumulated counters",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::Success);
+    const Packet packet = makePacket(15,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+    REQUIRE(result.status == transport::TransmitStatus::Success);
+    requireCounters(transport_manager.counters(),
+                    {.tx_packets = 1, .tx_bytes = packet.payload.size()});
+
+    transport_manager.resetCounters();
+
+    requireCountersZero(transport_manager.counters());
 }

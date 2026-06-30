@@ -564,7 +564,7 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
-# Unit Tests for packet forwarding runtime integration
+# Unit Tests for packet forwarding runtime and transport manager integration
 # -------------------------------------------------------
 if(BUILD_TESTING)
 

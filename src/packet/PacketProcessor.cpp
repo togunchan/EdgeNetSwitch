@@ -4,11 +4,71 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
+#include "edgenetswitch/transport/TransmitResult.hpp"
 
 #include <utility>
 
 namespace edgenetswitch
 {
+    namespace
+    {
+        std::string toString(transport::TransmitStatus status)
+        {
+            switch (status)
+            {
+            case transport::TransmitStatus::Success:
+                return "success";
+            case transport::TransmitStatus::PortDown:
+                return "port_down";
+            case transport::TransmitStatus::BackendUnavailable:
+                return "backend_unavailable";
+            case transport::TransmitStatus::InvalidPacket:
+                return "invalid_packet";
+            case transport::TransmitStatus::SendFailed:
+                return "send_failed";
+            default:
+                return "unknown";
+            }
+        }
+
+        void logTransmitResult(const transport::TransmitResult &result)
+        {
+            switch (result.status)
+            {
+            case transport::TransmitStatus::Success:
+                Logger::info("Transport transmit: "
+                             "port=" +
+                             std::to_string(result.port_id) + " status=" + toString(result.status) +
+                             " bytes=" + std::to_string(result.bytes_transmitted));
+                break;
+            case transport::TransmitStatus::PortDown:
+                Logger::warn("Transport transmit skipped: "
+                             "port=" +
+                             std::to_string(result.port_id) + " status=" + toString(result.status));
+                break;
+            case transport::TransmitStatus::BackendUnavailable:
+                Logger::warn("Transport backend unavailable: "
+                             "port=" +
+                             std::to_string(result.port_id) + " status=" + toString(result.status));
+                break;
+            case transport::TransmitStatus::InvalidPacket:
+                Logger::warn("Transport transmit rejected: "
+                             "port=" +
+                             std::to_string(result.port_id) + " status=" + toString(result.status));
+                break;
+            case transport::TransmitStatus::SendFailed:
+                Logger::error("Transport transmit failed: "
+                              "port=" +
+                              std::to_string(result.port_id) +
+                              " status=" + toString(result.status) +
+                              " errno=" + std::to_string(result.native_error));
+                break;
+            default:
+                Logger::error("Unknown transport status");
+                break;
+            }
+        }
+    } // namespace
     PacketProcessor::PacketProcessor(MessagingBus &bus, SwitchForwardingEngine *forwarding_engine,
                                      transport::TransportManager *transport_manager,
                                      failure::FailureInjector injector)
@@ -149,7 +209,8 @@ namespace edgenetswitch
                 {
                     for (auto port : decision.egress_ports)
                     {
-                        transport_manager_->transmit(port, processedPacket);
+                        const auto result = transport_manager_->transmit(port, processedPacket);
+                        logTransmitResult(result);
                     }
                 }
                 else
