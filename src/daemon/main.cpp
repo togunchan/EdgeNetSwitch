@@ -28,6 +28,8 @@
 #include "edgenetswitch/system/fd/FdType.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include "edgenetswitch/telemetry/Telemetry.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
+#include "edgenetswitch/transport/UdpPortBackend.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 #include "telemetry/FileTelemetryExporter.hpp"
@@ -284,7 +286,13 @@ int main(int argc, char *argv[])
 
         MacTable macTable(1024);
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
-        PacketProcessor packetProcessor(bus, forwardingEngine, failureInjector);
+        transport::TransportManager transportManager;
+
+        transportManager.registerBackend(
+            1, std::make_unique<transport::UdpPortBackend>(
+                   1, transport::UdpEndpoint{"127.0.0.1", 9101}, &fd_registry));
+
+        PacketProcessor packetProcessor(bus, &forwardingEngine, &transportManager, failureInjector);
         PacketStats packetStats(bus);
         EpollManager epollManager(&fd_registry);
         EpollEventLoop epollLoop(epollManager, &fd_registry);
@@ -327,7 +335,8 @@ int main(int argc, char *argv[])
         if (control_fd.valid())
         {
             controlServer = std::make_unique<control::ControlServer>(
-                control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry);
+                control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry,
+                transportManager);
 
             controlHandler = std::make_unique<ControlReadyHandler>(*controlServer);
 

@@ -534,6 +534,46 @@ namespace edgenetswitch::control
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
 
+    static ControlResponse handleTransportStats(const ControlContext &ctx, const std::string &arg)
+    {
+        if (!ctx.transport_manager)
+        {
+            return makeJsonError(error::InternalError, "transport manager unavailable");
+        }
+
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
+        const auto &counters = ctx.transport_manager->counters();
+
+        if (arg == "json")
+        {
+            nlohmann::json j;
+
+            j["tx_packets"] = counters.tx_packets;
+            j["tx_bytes"] = counters.tx_bytes;
+            j["tx_failed"] = counters.tx_failed;
+            j["backend_unavailable"] = counters.backend_unavailable;
+            j["port_down"] = counters.port_down;
+            j["invalid_packet"] = counters.invalid_packet;
+
+            return makeJsonSuccess(j);
+        }
+
+        std::string payload;
+
+        payload += "tx_packets=" + std::to_string(counters.tx_packets) + "\n";
+        payload += "tx_bytes=" + std::to_string(counters.tx_bytes) + "\n";
+        payload += "tx_failed=" + std::to_string(counters.tx_failed) + "\n";
+        payload += "backend_unavailable=" + std::to_string(counters.backend_unavailable) + "\n";
+        payload += "port_down=" + std::to_string(counters.port_down) + "\n";
+        payload += "invalid_packet=" + std::to_string(counters.invalid_packet);
+
+        return ControlResponse{.success = true, .payload = std::move(payload)};
+    }
+
     static const CommandTable &commandTable()
     {
         // Static dispatch table:
@@ -598,6 +638,12 @@ namespace edgenetswitch::control
               .description = "file descriptor runtime state",
               .fields = {"fd", "state", "type"},
               .handler = handleFdStatus}},
+            {"transport-stats",
+             {.name = "transport-stats",
+              .description = "transport layer statistics",
+              .fields = {"tx_packets", "tx_bytes", "tx_failed", "backend_unavailable", "port_down",
+                         "invalid_packet"},
+              .handler = handleTransportStats}},
         };
         return table;
     }

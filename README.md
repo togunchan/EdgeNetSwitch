@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.4-orange)
+![Version](https://img.shields.io/badge/version-v1.9.5-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -37,6 +37,7 @@ The system enables early validation of:
 - Deterministic failure injection: reproducible faults exercise loss, delay, rejection, and replay-validation paths without relying on randomness.
 - Switching simulation: packets with MAC and ingress-port metadata produce deterministic learning, drop, flood, or known-unicast decisions.
 - Forwarding observability: `ForwardingDecisionMade` exposes switching results before the packet reaches its terminal processed event.
+- Transport backend dispatch: forwarding egress ports are transmitted through `TransportManager` and registered `PortBackend` implementations.
 - Control-plane capabilities: UNIX-socket commands expose snapshots, config, health, packet stats, descriptor state, MAC-table state, and synthetic packet injection.
 - Linux readiness model: UDP ingress, the control listener, and shutdown wakeups dispatch through `epoll` handlers.
 - Eventfd shutdown wakeup: `eventfd` interrupts `epoll_wait()` so shutdown does not depend on timeout expiry or unrelated I/O.
@@ -45,11 +46,11 @@ The system enables early validation of:
 
 ## Latest Runtime Evolution
 
-v1.9.4 makes daemon shutdown signal-aware without replacing the epoll runtime architecture. `ShutdownReason` and `ShutdownRequest` now model why shutdown was requested, and runtime logs distinguish local interrupt shutdown from service-style termination.
+v1.9.5 adds a transport backend layer between forwarding decisions and packet transmission. `TransportManager` owns registered per-port backends, dispatches egress ports selected by the switching engine, and records transmit counters for runtime inspection.
 
-Signal handlers are installed with `sigaction()`. The handler records only the received signal in a `volatile sig_atomic_t`; the main daemon loop converts that value into `SignalInterrupt` for `SIGINT` or `SignalTerminate` for `SIGTERM` before entering the existing deterministic shutdown path.
+The first concrete backend is `UdpPortBackend`, which owns a UDP socket through the existing RAII descriptor model and sends payloads to configured endpoint addresses. `VirtualPortBackend` preserves the same `PortBackend` contract for simulated transmit paths.
 
-The v1.9.4 investigation also documents the current shutdown latency boundary: signal capture is immediate, but the daemon acts on it when the main loop reaches the next tick. See `docs/investigations/v1.9.4-signal-runtime-investigation.md` for the implementation notes and validation results.
+Transport state is visible through the control plane with `transport-stats` and `transport-stats:json`, exposing successful packets, bytes, failed sends, unavailable backends, down ports, and invalid-packet outcomes.
 
 ## Architecture Overview
 
@@ -68,8 +69,15 @@ flowchart LR
     end
 
     subgraph Processing["Processing"]
-        PacketProcessing["Packet Processing"]
-        Switching["Switching Engine"]
+        Packet["Packet"]
+        PacketProcessor["PacketProcessor"]
+        SwitchForwardingEngine["SwitchForwardingEngine"]
+        TransportManager["TransportManager"]
+        PortBackend["PortBackend"]
+    end
+
+    subgraph Network["Network I/O"]
+        UdpSocket["Linux UDP Socket"]
     end
 
     subgraph Observability["Observability"]
@@ -82,18 +90,55 @@ flowchart LR
     Signals --> MainLoop
     MainLoop --> Bus
     EpollLoop --> Bus
-    Bus --> PacketProcessing
-    PacketProcessing --> Switching
+    Bus --> Packet
+    Packet --> PacketProcessor
+    PacketProcessor --> SwitchForwardingEngine
+    SwitchForwardingEngine --> TransportManager
+    TransportManager --> PortBackend
+    PortBackend --> UdpSocket
     MainLoop --> Telemetry
     MainLoop --> Snapshots
-    PacketProcessing --> Snapshots
+    PacketProcessor --> Snapshots
+    TransportManager --> Snapshots
 ```
 
 The main tradeoff is intentional: the runtime prioritizes explicit ownership, lifecycle accounting, and bounded handoff points over hidden blocking, unbounded buffering, or timing side effects from observability paths.
 
-The system enforces a strict boundary between runtime decisions and external I/O. `epoll` handles descriptor readiness, `MessagingBus` handles in-process events, and bounded queues define explicit async handoff points. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process and published as observable decisions, but no real frame transmission is performed.
+The system enforces a strict boundary between runtime decisions and external I/O. `epoll` handles descriptor readiness, `MessagingBus` handles in-process events, bounded queues define explicit async handoff points, and transport backends own the mechanics of per-port transmission. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process, published as an observable decision, and dispatched through the transport layer when egress ports are selected.
 
 Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during shutdown.
+
+Packet forwarding follows this runtime path:
+
+```text
+Packet
+-> PacketProcessor
+-> SwitchForwardingEngine
+-> TransportManager
+-> PortBackend
+-> Linux UDP Socket
+```
+
+## Transport Layer
+
+The transport layer is the boundary between switching decisions and outbound packet I/O.
+
+`PortBackend` is the per-port transmit interface. Backends accept a processed packet and return a `TransmitResult` that identifies success, unavailable backend, down port, invalid packet, or native send failure.
+
+`VirtualPortBackend` implements the same interface for simulated transmit paths. It preserves the transport contract without creating a socket.
+
+`UdpPortBackend` implements the socket-backed transport path. It creates a UDP socket, owns it through the existing RAII `FileDescriptor` wrapper, records it in `FdRegistry` when a registry is provided, and sends packet payload bytes to the configured IPv4 endpoint.
+
+`TransportManager` owns registered backends by port ID, dispatches forwarding egress ports to the matching backend, and keeps transport policy out of the switching engine. It converts backend outcomes into runtime counters, allowing successful transmissions, failures, unavailable backends, and other transport events to be observed through the control plane.
+
+`TransportCounters` expose transmit visibility for successful packets, transmitted bytes, failed sends, unavailable backends, down ports, and invalid packets.
+
+The control plane exposes these counters through:
+
+```bash
+echo "1.2|transport-stats" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|transport-stats:json" | nc -U /tmp/edgenetswitch.sock
+```
 
 ## Focused Architecture Documents
 

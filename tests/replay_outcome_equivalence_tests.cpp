@@ -114,7 +114,7 @@ namespace
         PacketStats stats(bus);
         ReplayRecorder recorder(bus);
         ReplayOutcomeCollector outcome_collector(bus);
-        PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+        PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
         for (std::size_t index = 0; index < packets.size(); ++index)
         {
@@ -135,7 +135,7 @@ namespace
         MessagingBus bus;
         PacketStats stats(bus);
         ReplayOutcomeCollector outcome_collector(bus);
-        PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+        PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
         ReplayPlayer player(bus);
 
         for (std::size_t index = 0; index < records.size(); ++index)

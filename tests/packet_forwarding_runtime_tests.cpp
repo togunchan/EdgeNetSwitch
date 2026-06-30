@@ -7,10 +7,13 @@
 #include "edgenetswitch/switching/MacAddress.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/switching/SwitchPort.hpp"
+#include "edgenetswitch/transport/PortBackend.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -159,7 +162,7 @@ namespace
         explicit ForwardingRuntimeFixture(InterfaceRegistry registry = makeInterfaces())
             : interfaces(std::move(registry)),
               forwarding_engine(mac_table, interfaces),
-              processor(bus, forwarding_engine)
+              processor(bus, &forwarding_engine)
         {
             events.subscribe(bus);
         }
@@ -169,6 +172,90 @@ namespace
         MacTable mac_table{16};
         InterfaceRegistry interfaces;
         SwitchForwardingEngine forwarding_engine;
+        PacketProcessor processor;
+    };
+
+    class FakePortBackend final : public transport::PortBackend
+    {
+    public:
+        explicit FakePortBackend(
+            std::uint32_t port_id,
+            transport::TransmitStatus status = transport::TransmitStatus::Success)
+            : port_id_(port_id), status_(status)
+        {
+        }
+
+        transport::TransmitResult transmit(const Packet &packet) override
+        {
+            ++transmit_count;
+            last_packet_id = packet.id;
+            last_lifecycle_id = packet.lifecycle_id;
+
+            const std::size_t bytes_transmitted =
+                status_ == transport::TransmitStatus::Success ? packet.payload.size() : 0;
+
+            return transport::TransmitResult{.status = status_,
+                                             .port_id = port_id_,
+                                             .bytes_transmitted = bytes_transmitted};
+        }
+
+        std::size_t transmit_count{0};
+        std::uint64_t last_packet_id{0};
+        std::uint64_t last_lifecycle_id{0};
+
+    private:
+        std::uint32_t port_id_{0};
+        transport::TransmitStatus status_{transport::TransmitStatus::Success};
+    };
+
+    void registerBackend(transport::TransportManager &transport_manager,
+                         std::uint32_t port_id,
+                         transport::TransmitStatus status = transport::TransmitStatus::Success)
+    {
+        transport_manager.registerBackend(port_id,
+                                          std::make_unique<FakePortBackend>(port_id, status));
+    }
+
+    void requireCounters(const transport::TransportCounters &counters,
+                         const transport::TransportCounters &expected)
+    {
+        REQUIRE(counters.tx_packets == expected.tx_packets);
+        REQUIRE(counters.tx_bytes == expected.tx_bytes);
+        REQUIRE(counters.tx_failed == expected.tx_failed);
+        REQUIRE(counters.backend_unavailable == expected.backend_unavailable);
+        REQUIRE(counters.port_down == expected.port_down);
+        REQUIRE(counters.invalid_packet == expected.invalid_packet);
+    }
+
+    void requireCountersZero(const transport::TransportCounters &counters)
+    {
+        requireCounters(counters, {});
+    }
+
+    struct TransportRuntimeFixture
+    {
+        explicit TransportRuntimeFixture(InterfaceRegistry registry = makeInterfaces())
+            : interfaces(std::move(registry)),
+              forwarding_engine(mac_table, interfaces),
+              processor(bus, &forwarding_engine, &transport_manager)
+        {
+            events.subscribe(bus);
+        }
+
+        FakePortBackend &registerBackend(std::uint32_t port_id)
+        {
+            auto backend = std::make_unique<FakePortBackend>(port_id);
+            FakePortBackend *raw_backend = backend.get();
+            transport_manager.registerBackend(port_id, std::move(backend));
+            return *raw_backend;
+        }
+
+        MessagingBus bus;
+        EventRecorder events;
+        MacTable mac_table{16};
+        InterfaceRegistry interfaces;
+        SwitchForwardingEngine forwarding_engine;
+        transport::TransportManager transport_manager;
         PacketProcessor processor;
     };
 } // namespace
@@ -287,4 +374,188 @@ TEST_CASE("PacketProcessor publishes drop decision for known unicast on down por
     REQUIRE(events.processed_packets.size() == 1);
     REQUIRE(events.order == std::vector<MessageType>{MessageType::ForwardingDecisionMade,
                                                      MessageType::PacketProcessed});
+}
+
+TEST_CASE("PacketProcessor dispatches known unicast to TransportManager backend",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture;
+    FakePortBackend &backend = fixture.registerBackend(4);
+    const MacAddress destination = mac("00:11:22:33:44:02");
+    fixture.mac_table.learn(destination, 4, 5);
+    const Packet packet = makePacket(6,
+                                     mac("00:11:22:33:44:01"),
+                                     destination,
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::ForwardToPorts);
+    REQUIRE(events.forwarding_events.front().egress_ports == std::vector<std::uint32_t>{4});
+    REQUIRE(backend.transmit_count == 1);
+    REQUIRE(backend.last_packet_id == packet.id);
+    REQUIRE(backend.last_lifecycle_id == packet.lifecycle_id);
+}
+
+TEST_CASE("PacketProcessor dispatches flood decision once per egress port",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture;
+    FakePortBackend &port1 = fixture.registerBackend(1);
+    FakePortBackend &port3 = fixture.registerBackend(3);
+    FakePortBackend &port4 = fixture.registerBackend(4);
+    const Packet packet = makePacket(7,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("ff:ff:ff:ff:ff:ff"),
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::Flood);
+    REQUIRE(events.forwarding_events.front().egress_ports ==
+            std::vector<std::uint32_t>{1, 3, 4});
+    REQUIRE(port1.transmit_count == 1);
+    REQUIRE(port3.transmit_count == 1);
+    REQUIRE(port4.transmit_count == 1);
+    REQUIRE(port1.last_packet_id == packet.id);
+    REQUIRE(port3.last_packet_id == packet.id);
+    REQUIRE(port4.last_packet_id == packet.id);
+    REQUIRE(port1.last_lifecycle_id == packet.lifecycle_id);
+    REQUIRE(port3.last_lifecycle_id == packet.lifecycle_id);
+    REQUIRE(port4.last_lifecycle_id == packet.lifecycle_id);
+}
+
+TEST_CASE("PacketProcessor does not dispatch drop decisions to TransportManager",
+          "[PacketForwardingRuntime][Transport]")
+{
+    TransportRuntimeFixture fixture(makeInterfacesWithDownPort());
+    FakePortBackend &backend = fixture.registerBackend(4);
+    const MacAddress destination = mac("00:11:22:33:44:02");
+    fixture.mac_table.learn(destination, 4, 5);
+    const Packet packet = makePacket(8,
+                                     mac("00:11:22:33:44:01"),
+                                     destination,
+                                     2);
+
+    publishPacketRx(fixture.bus, packet);
+
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    const EventSnapshot events = fixture.events.snapshot();
+
+    REQUIRE(events.forwarding_events.size() == 1);
+    REQUIRE(events.forwarding_events.front().action == ForwardingAction::Drop);
+    REQUIRE(events.forwarding_events.front().egress_ports.empty());
+    REQUIRE(backend.transmit_count == 0);
+    REQUIRE(backend.last_packet_id == 0);
+    REQUIRE(backend.last_lifecycle_id == 0);
+}
+
+TEST_CASE("TransportManager reports backend unavailable and updates counters",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    const Packet packet = makePacket(9,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(99, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::BackendUnavailable);
+    REQUIRE(result.port_id == 99);
+    requireCounters(transport_manager.counters(),
+                    {.tx_failed = 1, .backend_unavailable = 1});
+}
+
+TEST_CASE("TransportManager updates counters for successful transmit",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::Success);
+    const Packet packet = makePacket(10,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::Success);
+    requireCounters(transport_manager.counters(),
+                    {.tx_packets = 1, .tx_bytes = packet.payload.size()});
+}
+
+TEST_CASE("TransportManager updates counters for port down",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::PortDown);
+    const Packet packet = makePacket(12,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::PortDown);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1, .port_down = 1});
+}
+
+TEST_CASE("TransportManager updates counters for invalid packet",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::InvalidPacket);
+    const Packet packet = makePacket(13,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::InvalidPacket);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1, .invalid_packet = 1});
+}
+
+TEST_CASE("TransportManager updates counters for send failed",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::SendFailed);
+    const Packet packet = makePacket(14,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::SendFailed);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1});
+}
+
+TEST_CASE("TransportManager resetCounters clears accumulated counters",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    registerBackend(transport_manager, 4, transport::TransmitStatus::Success);
+    const Packet packet = makePacket(15,
+                                     mac("00:11:22:33:44:01"),
+                                     mac("00:11:22:33:44:02"),
+                                     2);
+
+    const auto result = transport_manager.transmit(4, packet);
+    REQUIRE(result.status == transport::TransmitStatus::Success);
+    requireCounters(transport_manager.counters(),
+                    {.tx_packets = 1, .tx_bytes = packet.payload.size()});
+
+    transport_manager.resetCounters();
+
+    requireCountersZero(transport_manager.counters());
 }

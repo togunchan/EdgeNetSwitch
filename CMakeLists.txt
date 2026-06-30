@@ -189,6 +189,9 @@ add_executable(EdgeNetSwitchDaemon
     src/packet/PacketProcessor.cpp
     src/packet/PacketStats.cpp
     src/packet/PacketValidator.cpp
+    src/transport/TransportManager.cpp
+    src/transport/UdpPortBackend.cpp
+    src/transport/VirtualPortBackend.cpp
     src/network/UdpReceiver.cpp
     src/replay/ReplayRecorder.cpp
     src/replay/ReplayPlayer.cpp
@@ -364,6 +367,7 @@ if(BUILD_TESTING)
         tests/replay_equivalence_tests.cpp
         src/packet/PacketProcessor.cpp
         src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
         src/replay/ReplayRecorder.cpp
         src/replay/ReplayPlayer.cpp
     )
@@ -373,6 +377,7 @@ if(BUILD_TESTING)
             MessagingBus
             FailureInjection
             Switching
+            Logger
             Catch2::Catch2WithMain
     )
 
@@ -391,6 +396,7 @@ if(BUILD_TESTING)
         tests/replay_outcome_equivalence_tests.cpp
         src/packet/PacketProcessor.cpp
         src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
         src/replay/ReplayRecorder.cpp
         src/replay/ReplayPlayer.cpp
         src/replay/ReplayOutcomeCollector.cpp
@@ -401,6 +407,7 @@ if(BUILD_TESTING)
             MessagingBus
             FailureInjection
             Switching
+            Logger
             Catch2::Catch2WithMain
     )
 
@@ -538,6 +545,7 @@ if(BUILD_TESTING)
         tests/rate_smoother_tests.cpp
         src/packet/PacketProcessor.cpp
         src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
     )
 
     target_link_libraries(PacketPipelineTests
@@ -556,13 +564,14 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
-# Unit Tests for packet forwarding runtime integration
+# Unit Tests for packet forwarding runtime and transport manager integration
 # -------------------------------------------------------
 if(BUILD_TESTING)
 
     add_executable(PacketForwardingRuntimeTests
         tests/packet_forwarding_runtime_tests.cpp
         src/packet/PacketProcessor.cpp
+        src/transport/TransportManager.cpp
     )
 
     target_link_libraries(PacketForwardingRuntimeTests
@@ -570,6 +579,7 @@ if(BUILD_TESTING)
             MessagingBus
             FailureInjection
             Switching
+            Logger
             Catch2::Catch2WithMain
     )
 
@@ -708,6 +718,7 @@ if(BUILD_TESTING)
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
         src/runtime/SnapshotPublisher.cpp
+        src/transport/TransportManager.cpp
         src/system/fd/FdRegistry.cpp
     )
 

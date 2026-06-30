@@ -391,7 +391,7 @@ TEST_CASE("deterministic simulated loss every 2 packets", "[PacketPipeline][Fail
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::SimulatedLoss, .enabled = true, .every_n_packets = 2};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 5000;
     constexpr std::uint64_t packet_count = 4;
@@ -439,7 +439,7 @@ TEST_CASE("malformed packet failure maps to parse error drop reason",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::MalformedPacket, .enabled = true, .every_n_packets = 1};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 10000;
     constexpr std::uint64_t packet_count = 3;
@@ -489,7 +489,7 @@ TEST_CASE("validation failure maps to validation error drop reason",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::ValidationError, .enabled = true, .every_n_packets = 1};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 11000;
     constexpr std::uint64_t packet_count = 3;
@@ -540,7 +540,7 @@ TEST_CASE("processing rejection failure maps to processing error drop reason",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::ProcessingRejection, .enabled = true, .every_n_packets = 1};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 12000;
     constexpr std::uint64_t packet_count = 3;
@@ -591,7 +591,7 @@ TEST_CASE("each lifecycle produces exactly one terminal event",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::SimulatedLoss, .enabled = true, .every_n_packets = 2};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 6000;
     constexpr std::uint64_t packet_count = 10;
@@ -643,7 +643,7 @@ TEST_CASE("artificial delay does not drop packets", "[PacketPipeline][FailureInj
                                                 .enabled = true,
                                                 .every_n_packets = 2,
                                                 .delay_ms = 1.0};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 7000;
     constexpr std::uint64_t packet_count = 5;
@@ -700,7 +700,7 @@ TEST_CASE("failure injection triggers exactly every N packets",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::SimulatedLoss, .enabled = true, .every_n_packets = 3};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 8000;
     constexpr std::uint64_t packet_count = 6;
@@ -762,7 +762,7 @@ TEST_CASE("failure injection under queue pressure produces correct drops",
 
     const failure::FailureConfig failure_config{
         .type = failure::FailureType::SimulatedLoss, .enabled = true, .every_n_packets = 2};
-    PacketProcessor processor(bus, failure::FailureInjector{failure_config});
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{failure_config});
 
     constexpr std::uint64_t now_ms = 9000;
     constexpr std::uint64_t packet_count = 3000;

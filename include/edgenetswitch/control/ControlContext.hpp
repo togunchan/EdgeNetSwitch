@@ -3,6 +3,7 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
 
 namespace edgenetswitch::daemon
 {
@@ -25,6 +26,7 @@ namespace edgenetswitch::control
         MessagingBus *bus{nullptr};
         SwitchForwardingEngine *forwarding_engine{nullptr};
         FdRegistry *fd_registry{nullptr};
+        edgenetswitch::transport::TransportManager *transport_manager{};
     };
 
 } // namespace edgenetswitch::control

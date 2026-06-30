@@ -4,6 +4,7 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -16,11 +17,11 @@ namespace edgenetswitch
     class PacketProcessor
     {
     public:
-        explicit PacketProcessor(MessagingBus &bus);
-        explicit PacketProcessor(MessagingBus &bus, failure::FailureInjector injector);
-        explicit PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine);
-        PacketProcessor(MessagingBus &bus, SwitchForwardingEngine &forwarding_engine,
-                        failure::FailureInjector injector);
+        explicit PacketProcessor(MessagingBus &bus,
+                                 SwitchForwardingEngine *forwarding_engine = nullptr,
+                                 transport::TransportManager *transport_manager = nullptr,
+                                 failure::FailureInjector injector = failure::FailureInjector{
+                                     failure::FailureConfig{}});
         ~PacketProcessor();
         void processLoop();
         void processPacket(Packet processedPacket);
@@ -38,5 +39,6 @@ namespace edgenetswitch
         MessagingBus &bus_;
         failure::FailureInjector injector_;
         SwitchForwardingEngine *forwarding_engine_{nullptr};
+        transport::TransportManager *transport_manager_{nullptr};
     };
 } // namespace edgenetswitch
