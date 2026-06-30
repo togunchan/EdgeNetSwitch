@@ -20,8 +20,38 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.2` adds runtime ingress latency instrumentation and compares blocking UDP ingress with non-blocking polling behavior, including idle-poll visibility and sanitizer-enabled validation.
 - `v1.9.3` migrates UDP and control-plane readiness into an `epoll` event loop with handler-based dispatch, bounded UDP draining, and `eventfd` shutdown wakeup.
 - `v1.9.4` makes daemon shutdown signal-aware by recording typed shutdown reasons, distinguishing `SIGINT` from `SIGTERM`, and keeping signal handling inside a minimal `sig_atomic_t` boundary.
+- `v1.9.5` introduces the transport backend layer, routing forwarding decisions through `TransportManager` and per-port `PortBackend` implementations with runtime transmit counters.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.5] - Transport Backend Integration
+
+### Added
+- Added the transport backend architecture as the runtime boundary between switching decisions and packet transmission.
+- Added `PortBackend` as the per-port transmit interface used by transport implementations.
+- Added `TransportManager` as the owner and dispatcher for registered port backends.
+- Added `VirtualPortBackend` for simulated transmit paths that preserve the backend contract without using a real socket.
+- Added `UdpPortBackend` for Linux UDP socket transmission to configured endpoint addresses.
+- Added `TransportCounters` for runtime transmit accounting: successful packets, transmitted bytes, failed sends, unavailable backends, down ports, and invalid packets.
+- Added the `transport-stats` and `transport-stats:json` control commands for inspecting transport counters through the existing UNIX-socket control plane.
+- Added transport logging for dispatch results, unavailable backends, rejected transmissions, failed sends, virtual transmit calls, and UDP socket sends.
+- Added unit coverage for `TransportManager` counters and forwarding integration through the packet runtime path.
+
+### Changed
+- Forwarding decisions now execute through transport backends. `PacketProcessor` sends each egress port from a `ForwardingDecision` through `TransportManager::transmit()`.
+- Drop decisions and forwarding decisions with no egress ports do not dispatch to transport backends.
+- Transport lifecycle ownership is explicit: `TransportManager` owns registered backends, and UDP transport sockets are owned through the existing RAII `FileDescriptor` model.
+- Runtime socket ownership remains visible to descriptor lifecycle tracking because `UdpPortBackend` creates its socket through the `FdRegistry`-aware descriptor wrapper.
+
+### Validated
+- Validated forwarding integration for known-unicast dispatch, flood dispatch, and drop decisions that must not transmit.
+- Validated `TransportManager` counter updates for successful transmit, unavailable backend, down port, invalid packet, send failure, and counter reset.
+- Validated runtime wiring with the daemon using a `TransportManager` and `UdpPortBackend` registered for a UDP egress endpoint.
+
+### Engineering Notes
+- The transport layer keeps switching policy separate from transmit mechanics: `SwitchForwardingEngine` computes the decision, while `TransportManager` owns backend lookup, dispatch, and counters.
+- `UdpPortBackend` owns its UDP socket with RAII semantics and returns explicit `TransmitResult` status values instead of hiding native send failures.
+- Transport observability follows the existing control-plane model; `transport-stats` is a read-only runtime view and does not bypass normal packet or forwarding paths.
 
 ## [v1.9.4] - Signal-Aware Runtime Shutdown
 
