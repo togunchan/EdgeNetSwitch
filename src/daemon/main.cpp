@@ -335,7 +335,8 @@ int main(int argc, char *argv[])
         if (control_fd.valid())
         {
             controlServer = std::make_unique<control::ControlServer>(
-                control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry);
+                control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry,
+                transportManager);
 
             controlHandler = std::make_unique<ControlReadyHandler>(*controlServer);
 

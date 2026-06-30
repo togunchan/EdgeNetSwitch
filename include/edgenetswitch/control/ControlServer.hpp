@@ -6,6 +6,7 @@
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
+#include "edgenetswitch/transport/TransportManager.hpp"
 #include "runtime/SnapshotPublisher.hpp"
 
 namespace edgenetswitch::control
@@ -15,7 +16,8 @@ namespace edgenetswitch::control
     public:
         ControlServer(FileDescriptor &listen_fd, daemon::SnapshotPublisher &publisher,
                       const core::Config &config, MessagingBus &bus,
-                      SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry);
+                      SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
+                      edgenetswitch::transport::TransportManager &transport_manager);
 
         [[nodiscard]]
         int fd() const noexcept;
@@ -32,5 +34,6 @@ namespace edgenetswitch::control
         MessagingBus &bus_;
         SwitchForwardingEngine &forwarding_engine_;
         FdRegistry &fd_registry_;
+        edgenetswitch::transport::TransportManager &transport_manager_;
     };
 } // namespace edgenetswitch::control
