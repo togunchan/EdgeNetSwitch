@@ -228,8 +228,6 @@ namespace edgenetswitch
             return UdpReadResult::PacketProcessed;
         }
 
-        sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
-
         Message msg{};
         msg.type = MessageType::PacketRx;
         msg.timestamp_ms = packet.timestamp_ms;
