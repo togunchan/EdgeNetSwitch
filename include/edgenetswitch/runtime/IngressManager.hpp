@@ -26,7 +26,12 @@ namespace edgenetswitch
         EpollEventLoop &epollLoop_;
         FdRegistry &fdRegistry_;
 
-        std::unique_ptr<UdpReceiver> udpReceiver_;
-        std::unique_ptr<UdpReadyHandler> udpHandler_;
+        struct UdpIngressEndpoint
+        {
+            std::unique_ptr<UdpReceiver> receiver;
+            std::unique_ptr<UdpReadyHandler> handler;
+        };
+
+        std::vector<UdpIngressEndpoint> ingressEndpoints_;
     };
 } // namespace edgenetswitch

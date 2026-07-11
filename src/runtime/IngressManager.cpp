@@ -17,26 +17,30 @@ namespace edgenetswitch
 
     void IngressManager::initialize(const core::UdpConfig &udpConfig)
     {
-        udpReceiver_ = std::make_unique<UdpReceiver>(bus_, udpConfig.port, &fdRegistry_,
-                                                     IngressMode::NonBlocking);
-        udpReceiver_->initializeSocket();
+        UdpIngressEndpoint endpoint;
 
-        udpHandler_ = std::make_unique<UdpReadyHandler>(*udpReceiver_);
-        Logger::debug("UDP fd = " + std::to_string(udpReceiver_->fd()));
+        endpoint.receiver = std::make_unique<UdpReceiver>(bus_, udpConfig.port, &fdRegistry_,
+                                                          IngressMode::NonBlocking);
+        endpoint.receiver->initializeSocket();
 
-        epollManager_.add(udpReceiver_->fd(), EPOLLIN);
-        epollLoop_.registerHandler(udpReceiver_->fd(), udpHandler_.get());
+        endpoint.handler = std::make_unique<UdpReadyHandler>(*endpoint.receiver);
+        Logger::debug("UDP fd = " + std::to_string(endpoint.receiver->fd()));
+
+        epollManager_.add(endpoint.receiver->fd(), EPOLLIN);
+        epollLoop_.registerHandler(endpoint.receiver->fd(), endpoint.handler.get());
+
+        ingressEndpoints_.push_back(std::move(endpoint));
     }
 
     void IngressManager::shutdown()
     {
-        if (!udpReceiver_)
+        for (auto &endpoint : ingressEndpoints_)
         {
-            return;
+            Logger::info("[SHUTDOWN] Stopping UDP receiver");
+            endpoint.receiver->stop();
         }
-        Logger::info("[SHUTDOWN] Stopping UDP receiver");
-        udpReceiver_->stop();
         Logger::info("[SHUTDOWN] UDP receiver stopped");
+        ingressEndpoints_.clear();
     }
 
 } // namespace edgenetswitch
