@@ -27,4 +27,16 @@ namespace edgenetswitch
         epollManager_.add(udpReceiver_->fd(), EPOLLIN);
         epollLoop_.registerHandler(udpReceiver_->fd(), udpHandler_.get());
     }
+
+    void IngressManager::shutdown()
+    {
+        if (!udpReceiver_)
+        {
+            return;
+        }
+        Logger::info("[SHUTDOWN] Stopping UDP receiver");
+        udpReceiver_->stop();
+        Logger::info("[SHUTDOWN] UDP receiver stopped");
+    }
+
 } // namespace edgenetswitch

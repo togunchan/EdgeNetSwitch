@@ -5,13 +5,12 @@
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
-#include "edgenetswitch/network/IngressMode.hpp"
-#include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/packet/PacketGenerator.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
 #include "edgenetswitch/runtime/ShutdownReason.hpp"
 #include "edgenetswitch/runtime/ShutdownRequest.hpp"
@@ -23,7 +22,6 @@
 #include "edgenetswitch/system/epoll/ControlReadyHandler.hpp"
 #include "edgenetswitch/system/epoll/EpollEventLoop.hpp"
 #include "edgenetswitch/system/epoll/EpollManager.hpp"
-#include "edgenetswitch/system/epoll/UdpReadyHandler.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/system/fd/FdType.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
@@ -299,24 +297,14 @@ int main(int argc, char *argv[])
         TelemetryExportManager exportManager;
         FileDescriptor control_fd = createControlSocket(&fd_registry);
         std::thread epollThread;
-        std::unique_ptr<UdpReceiver> udpReceiver;
         RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
-        std::unique_ptr<UdpReadyHandler> udpHandler;
         std::unique_ptr<control::ControlServer> controlServer;
         std::unique_ptr<ControlReadyHandler> controlHandler;
+        IngressManager ingressManager(bus, epollManager, epollLoop, fd_registry);
 
         if (cfg.udp.enabled)
         {
-            udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry,
-                                                        IngressMode::NonBlocking);
-            udpReceiver->initializeSocket();
-
-            udpHandler = std::make_unique<UdpReadyHandler>(*udpReceiver);
-
-            Logger::debug("UDP fd = " + std::to_string(udpReceiver->fd()));
-
-            epollManager.add(udpReceiver->fd(), EPOLLIN);
-            epollLoop.registerHandler(udpReceiver->fd(), udpHandler.get());
+            ingressManager.initialize(cfg.udp);
         }
 
         exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
@@ -518,13 +506,7 @@ int main(int argc, char *argv[])
         }
 
         destroyControlSocket(control_fd);
-
-        if (udpReceiver)
-        {
-            Logger::info("[SHUTDOWN] Stopping UDP receiver");
-            udpReceiver->stop();
-            Logger::info("[SHUTDOWN] UDP receiver stopped");
-        }
+        ingressManager.shutdown();
 
         Logger::info("[SHUTDOWN] Stopping telemetry export manager");
         exportManager.stop();
