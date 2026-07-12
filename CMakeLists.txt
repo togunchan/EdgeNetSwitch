@@ -182,6 +182,7 @@ add_executable(EdgeNetSwitchDaemon
     src/control/ControlDispatch.cpp
     src/runtime/ShutdownReason.cpp
     src/runtime/ShutdownRequest.cpp
+    src/runtime/IngressManager.cpp
     src/runtime/RuntimeStatusBuilder.cpp
     src/runtime/SnapshotPublisher.cpp
     src/packet/PacketParser.cpp

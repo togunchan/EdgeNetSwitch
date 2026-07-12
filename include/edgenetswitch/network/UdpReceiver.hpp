@@ -22,8 +22,8 @@ namespace edgenetswitch
     class UdpReceiver
     {
     public:
-        UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry,
-                    IngressMode ingress_mode = IngressMode::Blocking);
+        UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
+                    FdRegistry *fd_registry, IngressMode ingress_mode = IngressMode::Blocking);
         ~UdpReceiver();
 
         void initializeSocket();
@@ -40,7 +40,8 @@ namespace edgenetswitch
         UdpReadResult handleReadable();
 
         MessagingBus &bus_;
-        int port_;
+        std::uint32_t switchPort_;
+        std::uint16_t listenPort_;
         FileDescriptor socket_fd_;
         FdRegistry *fd_registry_{nullptr};
         std::atomic_bool running_{false};

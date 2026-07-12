@@ -316,11 +316,24 @@ namespace edgenetswitch::control
             j["log"]["file"] = cfg.log.file;
             j["daemon"]["tick_ms"] = cfg.daemon.tick_ms;
             j["udp"]["enabled"] = cfg.udp.enabled;
-            j["udp"]["port"] = cfg.udp.port;
+            j["udp"]["endpoints"] = nlohmann::json::array();
+            for (const auto &endpoint : cfg.udp.endpoints)
+            {
+                j["udp"]["endpoints"].push_back(
+                    {{"switch_port", endpoint.switch_port}, {"listen_port", endpoint.listen_port}});
+            }
             j["rate"]["alpha"] = cfg.rate.alpha;
             j["rate"]["window_ms"] = cfg.rate.window_ms;
 
             return makeJsonSuccess(j);
+        }
+
+        std::string udpEndpoints;
+
+        for (const auto &endpoint : cfg.udp.endpoints)
+        {
+            udpEndpoints += "udp.endpoint.switch_port=" + std::to_string(endpoint.switch_port) +
+                            " listen_port=" + std::to_string(endpoint.listen_port) + "\n";
         }
 
         return ControlResponse{
@@ -328,8 +341,7 @@ namespace edgenetswitch::control
             .payload = "log.level=" + cfg.log.level + "\n" + "log.file=" + cfg.log.file + "\n" +
                        "daemon.tick_ms=" + std::to_string(cfg.daemon.tick_ms) + "\n" +
                        "udp.enabled=" + std::string(cfg.udp.enabled ? "true" : "false") + "\n" +
-                       "udp.port=" + std::to_string(cfg.udp.port) + "\n" +
-                       "rate.alpha=" + std::to_string(cfg.rate.alpha) + "\n" +
+                       udpEndpoints + "rate.alpha=" + std::to_string(cfg.rate.alpha) + "\n" +
                        "rate.window_ms=" + std::to_string(cfg.rate.window_ms)};
     }
 
