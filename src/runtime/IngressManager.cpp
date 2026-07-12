@@ -17,19 +17,22 @@ namespace edgenetswitch
 
     void IngressManager::initialize(const core::UdpConfig &udpConfig)
     {
-        UdpIngressEndpoint endpoint;
+        for (const auto &endpointConfig : udpConfig.endpoints)
+        {
+            UdpIngressEndpoint endpoint;
 
-        endpoint.receiver = std::make_unique<UdpReceiver>(bus_, udpConfig.port, &fdRegistry_,
-                                                          IngressMode::NonBlocking);
-        endpoint.receiver->initializeSocket();
+            endpoint.receiver = std::make_unique<UdpReceiver>(
+                bus_, endpointConfig.listen_port, &fdRegistry_, IngressMode::NonBlocking);
+            endpoint.receiver->initializeSocket();
 
-        endpoint.handler = std::make_unique<UdpReadyHandler>(*endpoint.receiver);
-        Logger::debug("UDP fd = " + std::to_string(endpoint.receiver->fd()));
+            endpoint.handler = std::make_unique<UdpReadyHandler>(*endpoint.receiver);
+            Logger::debug("UDP fd = " + std::to_string(endpoint.receiver->fd()));
 
-        epollManager_.add(endpoint.receiver->fd(), EPOLLIN);
-        epollLoop_.registerHandler(endpoint.receiver->fd(), endpoint.handler.get());
+            epollManager_.add(endpoint.receiver->fd(), EPOLLIN);
+            epollLoop_.registerHandler(endpoint.receiver->fd(), endpoint.handler.get());
 
-        ingressEndpoints_.push_back(std::move(endpoint));
+            ingressEndpoints_.push_back(std::move(endpoint));
+        }
     }
 
     void IngressManager::shutdown()

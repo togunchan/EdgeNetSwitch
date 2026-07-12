@@ -111,7 +111,22 @@ namespace edgenetswitch::core
         cfg.daemon.tick_ms = daemonJson.value("tick_ms", 100);
 
         cfg.udp.enabled = udpJson.value("enabled", false);
-        cfg.udp.port = udpJson.value("port", 9000);
+
+        if (udpJson.contains("endpoints") && udpJson["endpoints"].is_array())
+        {
+            for (const auto &endpointJson : udpJson["endpoints"])
+            {
+                UdpIngressConfig endpoint;
+
+                endpoint.switch_port = endpointJson.value("switch_port", 0U);
+
+                endpoint.listen_port =
+                    endpointJson.value("listen_port", static_cast<std::uint16_t>(9000));
+
+                cfg.udp.endpoints.push_back(endpoint);
+            }
+        }
+
 
         cfg.rate.alpha = rateJson.contains("alpha")
                              ? rateJson["alpha"].get<double>()

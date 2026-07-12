@@ -8,7 +8,16 @@
   },
   "udp": {
     "enabled": true,
-    "port": 9000
+    "endpoints": [
+      {
+        "switch_port": 1,
+        "listen_port": 9001
+      },
+      {
+        "switch_port": 2,
+        "listen_port": 9002
+      }
+    ]
   },
   "rate": {
     "alpha": 0.2,
