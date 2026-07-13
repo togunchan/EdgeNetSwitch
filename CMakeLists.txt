@@ -244,6 +244,7 @@ if(BUILD_TESTING)
 
     target_link_libraries(PacketParserTests
         PRIVATE
+            Switching
             Catch2::Catch2WithMain
     )
 

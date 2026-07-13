@@ -270,25 +270,18 @@ int main(int argc, char *argv[])
         port2.setState(PortState::Up);
         interfaces.addPort(std::move((port2)));
 
-        SwitchPort port3(3, "eth3");
-        port3.setState(PortState::Up);
-        interfaces.addPort(std::move((port3)));
-
-        SwitchPort port4(4, "eth4");
-        port4.setState(PortState::Up);
-        interfaces.addPort(std::move((port4)));
-
-        SwitchPort port5(5, "eth5");
-        port5.setState(PortState::Up);
-        interfaces.addPort(std::move(port5));
-
         MacTable macTable(1024);
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
         transport::TransportManager transportManager;
 
-        transportManager.registerBackend(
-            1, std::make_unique<transport::UdpPortBackend>(
-                   1, transport::UdpEndpoint{"127.0.0.1", 9101}, &fd_registry));
+        for (const auto &endpoint : cfg.udp.endpoints)
+        {
+            transportManager.registerBackend(
+                endpoint.switch_port,
+                std::make_unique<transport::UdpPortBackend>(
+                    endpoint.switch_port,
+                    transport::UdpEndpoint{endpoint.peer.ip, endpoint.peer.port}, &fd_registry));
+        }
 
         PacketProcessor packetProcessor(bus, &forwardingEngine, &transportManager, failureInjector);
         PacketStats packetStats(bus);
@@ -412,12 +405,17 @@ int main(int argc, char *argv[])
                       [](const Message &msg)
                       {
                           const Packet &p = std::get<Packet>(msg.payload);
-                          Logger::info("Packet received: "
-                                       "id=" +
-                                       std::to_string(p.id) + " payload=" + p.payload +
-                                       " timestamp=" + formatTimestamp(p.timestamp_ms) +
-                                       " source_ip=" + p.source_ip +
-                                       " source_port=" + std::to_string(p.source_port));
+
+                          Logger::info(
+                              "Packet received: "
+                              "id=" +
+                              std::to_string(p.id) + " payload=" + p.payload + " timestamp=" +
+                              formatTimestamp(p.timestamp_ms) + " source_ip=" + p.source_ip +
+                              " source_port=" + std::to_string(p.source_port) + " ingress_port=" +
+                              (p.ingress_port ? std::to_string(*p.ingress_port) : "none") +
+                              " source_mac=" + (p.source_mac ? p.source_mac->toString() : "none") +
+                              " destination_mac=" +
+                              (p.destination_mac ? p.destination_mac->toString() : "none"));
                       });
 
         bus.subscribe(MessageType::ForwardingDecisionMade,

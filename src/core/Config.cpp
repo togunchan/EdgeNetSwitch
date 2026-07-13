@@ -120,13 +120,28 @@ namespace edgenetswitch::core
 
                 endpoint.switch_port = endpointJson.value("switch_port", 0U);
 
-                endpoint.listen_port =
-                    endpointJson.value("listen_port", static_cast<std::uint16_t>(9000));
+                if (endpointJson.contains("listen"))
+                {
+                    const auto &listenJson = endpointJson["listen"];
 
-                cfg.udp.endpoints.push_back(endpoint);
+                    endpoint.listen.ip = listenJson.value("ip", std::string("0.0.0.0"));
+
+                    endpoint.listen.port =
+                        listenJson.value("port", static_cast<std::uint16_t>(9000));
+                }
+
+                if (endpointJson.contains("peer"))
+                {
+                    const auto &peerJson = endpointJson["peer"];
+
+                    endpoint.peer.ip = peerJson.value("ip", std::string("127.0.0.1"));
+
+                    endpoint.peer.port = peerJson.value("port", static_cast<std::uint16_t>(9100));
+                }
+
+                cfg.udp.endpoints.push_back(std::move(endpoint));
             }
         }
-
 
         cfg.rate.alpha = rateJson.contains("alpha")
                              ? rateJson["alpha"].get<double>()

@@ -18,12 +18,18 @@ namespace edgenetswitch::core
         std::uint32_t tick_ms{100};
     };
 
-    
+    struct UdpEndpointConfig
+    {
+        std::string ip{"127.0.0.1"};
+        std::uint16_t port{0};
+    };
 
     struct UdpIngressConfig
     {
         std::uint32_t switch_port{0};
-        std::uint16_t listen_port{0};
+
+        UdpEndpointConfig listen;
+        UdpEndpointConfig peer;
     };
 
     struct UdpConfig

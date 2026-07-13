@@ -320,7 +320,9 @@ namespace edgenetswitch::control
             for (const auto &endpoint : cfg.udp.endpoints)
             {
                 j["udp"]["endpoints"].push_back(
-                    {{"switch_port", endpoint.switch_port}, {"listen_port", endpoint.listen_port}});
+                    {{"switch_port", endpoint.switch_port},
+                     {"listen", {{"ip", endpoint.listen.ip}, {"port", endpoint.listen.port}}},
+                     {"peer", {{"ip", endpoint.peer.ip}, {"port", endpoint.peer.port}}}});
             }
             j["rate"]["alpha"] = cfg.rate.alpha;
             j["rate"]["window_ms"] = cfg.rate.window_ms;
@@ -333,7 +335,10 @@ namespace edgenetswitch::control
         for (const auto &endpoint : cfg.udp.endpoints)
         {
             udpEndpoints += "udp.endpoint.switch_port=" + std::to_string(endpoint.switch_port) +
-                            " listen_port=" + std::to_string(endpoint.listen_port) + "\n";
+                            "\n" + "udp.endpoint.listen=" + endpoint.listen.ip + ":" +
+                            std::to_string(endpoint.listen.port) + "\n" +
+                            "udp.endpoint.peer=" + endpoint.peer.ip + ":" +
+                            std::to_string(endpoint.peer.port) + "\n";
         }
 
         return ControlResponse{

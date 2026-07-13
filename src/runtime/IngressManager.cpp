@@ -22,7 +22,7 @@ namespace edgenetswitch
             UdpIngressEndpoint endpoint;
 
             endpoint.receiver = std::make_unique<UdpReceiver>(
-                bus_, endpointConfig.switch_port, endpointConfig.listen_port, &fdRegistry_,
+                bus_, endpointConfig.switch_port, endpointConfig.listen.port, &fdRegistry_,
                 IngressMode::NonBlocking);
             endpoint.receiver->initializeSocket();
 

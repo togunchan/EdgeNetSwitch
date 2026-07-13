@@ -13,6 +13,26 @@
 
 namespace edgenetswitch::transport
 {
+    namespace
+    {
+        std::string serializePacket(const Packet &packet)
+        {
+            std::string wire;
+
+            wire += "id=" + std::to_string(packet.id);
+
+            if (packet.source_mac)
+                wire += ";src=" + packet.source_mac->toString();
+
+            if (packet.destination_mac)
+                wire += ";dst=" + packet.destination_mac->toString();
+
+            wire += ";payload=" + packet.payload;
+
+            return wire;
+        }
+    } // namespace
+    
     UdpPortBackend::UdpPortBackend(std::uint32_t port_id, const UdpEndpoint &endpoint,
                                    FdRegistry *fd_registry)
         : port_id_(port_id), endpoint_(endpoint),
@@ -40,8 +60,10 @@ namespace edgenetswitch::transport
             return {.status = TransmitStatus::Success, .port_id = port_id_, .bytes_transmitted = 0};
         }
 
+        std::string wire = serializePacket(packet);
+
         const ssize_t bytes_sent =
-            ::sendto(socket_.get(), packet.payload.data(), packet.payload.size(), 0,
+            ::sendto(socket_.get(), wire.data(), wire.size(), 0,
                      reinterpret_cast<const sockaddr *>(&destination_), sizeof(destination_));
 
         if (bytes_sent < 0)
