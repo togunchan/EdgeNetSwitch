@@ -21,8 +21,38 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.3` migrates UDP and control-plane readiness into an `epoll` event loop with handler-based dispatch, bounded UDP draining, and `eventfd` shutdown wakeup.
 - `v1.9.4` makes daemon shutdown signal-aware by recording typed shutdown reasons, distinguishing `SIGINT` from `SIGTERM`, and keeping signal handling inside a minimal `sig_atomic_t` boundary.
 - `v1.9.5` introduces the transport backend layer, routing forwarding decisions through `TransportManager` and per-port `PortBackend` implementations with runtime transmit counters.
+- `v1.9.6` completes the multi-endpoint UDP ingress architecture with endpoint-based configuration, centralized ingress lifecycle ownership, runtime-wide lifecycle identity, and end-to-end forwarding validation.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.6] - Multi-Endpoint UDP Ingress Architecture
+
+### Added
+- Added endpoint-based UDP configuration. Each logical switch port now has an independent `listen` endpoint for ingress and `peer` endpoint for egress.
+- Added `IngressManager` as the owner of configured ingress endpoint lifecycles.
+- Added support for multiple ingress endpoint pairs, with one `UdpReceiver` and one `UdpReadyHandler` per configured endpoint.
+- Added one runtime-owned `LifecycleIdGenerator` shared by every UDP ingress endpoint, keeping lifecycle IDs globally unique across the runtime.
+- Added source and destination MAC parsing to `PacketParser` for the UDP packet wire format.
+- Added `UdpPortBackend` wire serialization for packet ID, source MAC, destination MAC, and payload.
+
+### Changed
+- Moved UDP receiver creation, readiness-handler registration, socket lifecycle, and shutdown cleanup out of `main.cpp` and into `IngressManager`.
+- `UdpReceiver` now receives its logical switch-port assignment from endpoint configuration and records that port on accepted packets.
+- Runtime startup now creates and registers one `UdpPortBackend` per configured logical switch port using the endpoint's peer address.
+- UDP transport now preserves packet identity and MAC-address context across the egress wire format so a receiving runtime can parse the same switching metadata.
+
+### Validated
+- Validated unknown-unicast flooding to every active egress port except the ingress port.
+- Validated learning-switch behavior from initial flooding through known-unicast return forwarding without a second flood.
+- Validated MAC table aging by expiring a learned destination and observing the runtime return to flooding.
+- Validated packet ingress across multiple UDP endpoints with globally unique, strictly increasing lifecycle IDs.
+- Validated the complete UDP ingress, packet processing, switching, transport dispatch, and terminal processed-event pipeline.
+- Validated packet ID, lifecycle ID, payload, MAC-address, forwarding-event, backend-dispatch, and transport-counter integrity across the runtime path.
+
+### Engineering Notes
+- `IngressManager` owns endpoint lifetimes but does not replace the packet path; receivers continue to publish accepted packets through `MessagingBus`.
+- Packet ID remains wire-visible packet identity. `lifecycle_id` remains runtime-owned execution identity and is assigned from the shared generator when a packet enters the runtime.
+- Endpoint configuration keeps ingress and egress concerns explicit: `listen` selects the local receive socket, while `peer` selects the remote address used by `UdpPortBackend`.
 
 ## [v1.9.5] - Transport Backend Integration
 
