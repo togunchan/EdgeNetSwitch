@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.5-orange)
+![Version](https://img.shields.io/badge/version-v1.9.6-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -16,7 +16,7 @@ That makes packet loss, shutdown races, observability gaps, and lifecycle accoun
 
 ## Solution
 
-EdgeNetSwitch models a small network runtime in C++20. UDP traffic enters the daemon, packets move through a synchronous event bus and bounded worker handoffs, switching decisions are computed in-process, and runtime state is inspected through a UNIX-socket control plane.
+EdgeNetSwitch models a small network runtime in C++20. UDP traffic enters through configured ingress endpoints, packets move through a synchronous event bus and bounded worker handoffs, switching decisions are computed in-process, and runtime state is inspected through a UNIX-socket control plane.
 
 The runtime keeps concurrency, resource ownership, overload behavior, telemetry, replay, failure injection, and shutdown sequencing explicit so they can be tested before hardware or kernel integration hides the failure modes.
 
@@ -30,94 +30,73 @@ The system enables early validation of:
 ## Key Engineering Highlights
 
 - Deterministic runtime ownership: the main loop owns telemetry, health, and snapshots, while `epoll` owns readiness-driven I/O dispatch.
+- Runtime ingress lifecycle management: `IngressManager` owns configured UDP ingress endpoint lifetimes outside `main.cpp`.
+- Multi-endpoint UDP ingress: multiple configured sockets participate in the same switching runtime.
+- Endpoint-based runtime configuration: logical switch ports map to independent listen and peer addresses.
 - Synchronous event backbone: `MessagingBus` runs subscribers on the publisher's thread; async behavior is limited to explicit bounded handoffs.
 - Explicit overload behavior: packet admission uses a fixed-capacity queue with `QueueOverflow` drops instead of hidden latency or unbounded buffering.
-- Packet lifecycle accounting: `lifecycle_id` tracks runtime-owned packet identity, while terminal events and ownership rules validate lifecycle behavior.
+- Shared lifecycle ID generation: one runtime-owned `LifecycleIdGenerator` assigns globally unique IDs across all ingress endpoints.
 - Replay validation: recorded ingress traffic can be replayed and compared against expected runtime outcomes.
 - Deterministic failure injection: reproducible faults exercise loss, delay, rejection, and replay-validation paths without relying on randomness.
 - Switching simulation: packets with MAC and ingress-port metadata produce deterministic learning, drop, flood, or known-unicast decisions.
 - Forwarding observability: `ForwardingDecisionMade` exposes switching results before the packet reaches its terminal processed event.
-- Transport backend dispatch: forwarding egress ports are transmitted through `TransportManager` and registered `PortBackend` implementations.
+- End-to-end forwarding pipeline: validated packets flow through switching and `TransportManager` to registered `PortBackend` implementations.
 - Control-plane capabilities: UNIX-socket commands expose snapshots, config, health, packet stats, descriptor state, MAC-table state, and synthetic packet injection.
 - Linux readiness model: UDP ingress, the control listener, and shutdown wakeups dispatch through `epoll` handlers.
 - Eventfd shutdown wakeup: `eventfd` interrupts `epoll_wait()` so shutdown does not depend on timeout expiry or unrelated I/O.
 - Signal-aware shutdown: `SIGINT` and `SIGTERM` are recorded as distinct typed shutdown reasons and surfaced in runtime logs.
 - Runtime observability: telemetry export runs off the runtime path, while packet stats expose rates, latency, drops, drain counts, and lifecycle state.
+- Runtime validation suite: Catch2 coverage exercises flooding, learning, MAC aging, multi-endpoint ingress, global lifecycle identity, and complete forwarding behavior.
 
 ## Latest Runtime Evolution
 
-v1.9.5 adds a transport backend layer between forwarding decisions and packet transmission. `TransportManager` owns registered per-port backends, dispatches egress ports selected by the switching engine, and records transmit counters for runtime inspection.
+v1.9.6 completes the multi-endpoint UDP ingress architecture. Runtime configuration maps logical switch ports to independent listen and peer endpoints, allowing multiple UDP ingress sockets to participate in the same switching runtime.
 
-The first concrete backend is `UdpPortBackend`, which owns a UDP socket through the existing RAII descriptor model and sends payloads to configured endpoint addresses. `VirtualPortBackend` preserves the same `PortBackend` contract for simulated transmit paths.
+`IngressManager` separates ingress lifecycle management from `main.cpp`. Each configured ingress endpoint owns one `UdpReceiver` and one `UdpReadyHandler`, while outbound traffic uses the endpoint's peer address through `UdpPortBackend`.
 
-Transport state is visible through the control plane with `transport-stats` and `transport-stats:json`, exposing successful packets, bytes, failed sends, unavailable backends, down ports, and invalid-packet outcomes.
+All receivers share one runtime-owned `LifecycleIdGenerator`, keeping lifecycle IDs globally unique across endpoints. Runtime validation now covers the complete packet path from UDP ingress to transport egress.
 
 ## Architecture Overview
 
 ```mermaid
 flowchart LR
     subgraph Inputs["External Inputs"]
-        UdpTraffic["UDP Traffic"]
-        ControlInput["CLI / Control Plane"]
-        Signals["Signals"]
+        UdpEndpoints["UDP Endpoints"]
     end
 
     subgraph Coordination["Runtime Coordination"]
-        MainLoop["Daemon Main Loop"]
-        EpollLoop["Epoll Event Loop"]
+        IngressManager["IngressManager"]
+        IngressEndpoints["UdpReceiver / UdpReadyHandler endpoints"]
         Bus["MessagingBus"]
     end
 
     subgraph Processing["Processing"]
-        Packet["Packet"]
         PacketProcessor["PacketProcessor"]
         SwitchForwardingEngine["SwitchForwardingEngine"]
         TransportManager["TransportManager"]
-        PortBackend["PortBackend"]
     end
 
     subgraph Network["Network I/O"]
-        UdpSocket["Linux UDP Socket"]
+        PortBackend["PortBackend"]
+        UdpPeers["UDP Peers"]
     end
 
     subgraph Observability["Observability"]
-        Telemetry["Telemetry"]
-        Snapshots["Runtime Snapshots"]
+        RuntimeObservability["Runtime Observability"]
     end
 
-    UdpTraffic --> EpollLoop
-    ControlInput --> EpollLoop
-    Signals --> MainLoop
-    MainLoop --> Bus
-    EpollLoop --> Bus
-    Bus --> Packet
-    Packet --> PacketProcessor
+    UdpEndpoints --> IngressEndpoints
+    IngressManager -. owns .-> IngressEndpoints
+    IngressEndpoints --> Bus
+    Bus --> PacketProcessor
     PacketProcessor --> SwitchForwardingEngine
     SwitchForwardingEngine --> TransportManager
     TransportManager --> PortBackend
-    PortBackend --> UdpSocket
-    MainLoop --> Telemetry
-    MainLoop --> Snapshots
-    PacketProcessor --> Snapshots
-    TransportManager --> Snapshots
+    PortBackend --> UdpPeers
+    Bus -. runtime events .-> RuntimeObservability
 ```
 
-The main tradeoff is intentional: the runtime prioritizes explicit ownership, lifecycle accounting, and bounded handoff points over hidden blocking, unbounded buffering, or timing side effects from observability paths.
-
-The system enforces a strict boundary between runtime decisions and external I/O. `epoll` handles descriptor readiness, `MessagingBus` handles in-process events, bounded queues define explicit async handoff points, and transport backends own the mechanics of per-port transmission. Replay validation keeps that boundary intact by recording ingress and comparing regenerated terminal outcomes for ordering, lifecycle identity, drop attribution, and observable equivalence. Switching integration follows the same model: forwarding is computed in-process, published as an observable decision, and dispatched through the transport layer when egress ports are selected.
-
-Runtime resource ownership follows the same rule: POSIX descriptors are explicit runtime resources, tracked by state and type, inspectable through `fd-status`, and validated during shutdown.
-
-Packet forwarding follows this runtime path:
-
-```text
-Packet
--> PacketProcessor
--> SwitchForwardingEngine
--> TransportManager
--> PortBackend
--> Linux UDP Socket
-```
+`IngressManager` owns the lifetime of all configured ingress endpoints, with one `UdpReceiver` and one `UdpReadyHandler` per endpoint. Runtime configuration maps logical switch ports to independent ingress and egress UDP endpoints, while one runtime-owned `LifecycleIdGenerator` keeps lifecycle IDs globally unique across all endpoints. Detailed runtime architecture is intentionally kept under the [docs/](docs/) directory rather than in this README.
 
 ## Transport Layer
 
@@ -161,6 +140,12 @@ echo "1.2|transport-stats:json" | nc -U /tmp/edgenetswitch.sock
 
 See [CHANGELOG.md](CHANGELOG.md) for the architectural milestone history and release-level engineering notes.
 
+## Current Status
+
+v1.9.6 is complete.
+
+The runtime now supports scalable endpoint-based UDP ingress, globally unique lifecycle tracking, and end-to-end forwarding validation.
+
 ## Intended Audience
 
 This project is designed for engineers working on:
@@ -198,14 +183,15 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, terminal observable ordering, descriptor ownership, and Linux `epoll` / `eventfd` behavior.
+The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, terminal observable ordering, descriptor ownership, and Linux `epoll` / `eventfd` behavior. Runtime tests validate unknown unicast flooding, learning-switch behavior, MAC table aging, multi-endpoint UDP ingress, global lifecycle ID generation, and the end-to-end forwarding pipeline.
 
 ## Quick Demo (No Hardware Required)
 
-Send a UDP packet to the runtime:
+Send a UDP packet to any configured ingress endpoint:
 
 ```bash
-echo "test-packet" | nc -u 127.0.0.1 9000
+echo "test-packet" | nc -u 127.0.0.1 9001
+echo "test-packet" | nc -u 127.0.0.1 9002
 ```
 
 Inspect system state:
