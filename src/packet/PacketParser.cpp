@@ -33,6 +33,37 @@ namespace edgenetswitch
         {
             return p;
         }
+        auto srcPos = data.find("src=");
+
+        if (srcPos != std::string::npos)
+        {
+            auto srcEnd = data.find(';', srcPos);
+
+            std::string srcStr;
+
+            if (srcEnd != std::string::npos)
+                srcStr = data.substr(srcPos + 4, srcEnd - (srcPos + 4));
+            else
+                srcStr = data.substr(srcPos + 4);
+
+            p.source_mac = MacAddress::fromString(srcStr);
+        }
+
+        auto dstPos = data.find("dst=");
+
+        if (dstPos != std::string::npos)
+        {
+            auto dstEnd = data.find(';', dstPos);
+
+            std::string dstStr;
+
+            if (dstEnd != std::string::npos)
+                dstStr = data.substr(dstPos + 4, dstEnd - (dstPos + 4));
+            else
+                dstStr = data.substr(dstPos + 4);
+
+            p.destination_mac = MacAddress::fromString(dstStr);
+        }
 
         auto payloadPos = data.find("payload=");
         if (payloadPos != std::string::npos)
@@ -40,14 +71,13 @@ namespace edgenetswitch
             auto payloadEnd = data.find(';', payloadPos);
 
             if (payloadEnd != std::string::npos)
-                p.payload = data.substr(payloadPos + 8,
-                                        payloadEnd - (payloadPos + 8));
+                p.payload = data.substr(payloadPos + 8, payloadEnd - (payloadPos + 8));
             else
                 p.payload = data.substr(payloadPos + 8);
         }
 
         p.payload_size = static_cast<std::uint32_t>(p.payload.size());
-        p.valid = true;
+        p.valid = p.source_mac.has_value() && p.destination_mac.has_value();
 
         return p;
     }

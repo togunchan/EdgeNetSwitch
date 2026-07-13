@@ -8,7 +8,30 @@
   },
   "udp": {
     "enabled": true,
-    "port": 9000
+    "endpoints": [
+      {
+        "switch_port": 1,
+        "listen": {
+          "ip": "0.0.0.0",
+          "port": 9001
+        },
+        "peer": {
+          "ip": "127.0.0.1",
+          "port": 9101
+        }
+      },
+      {
+        "switch_port": 2,
+        "listen": {
+          "ip": "0.0.0.0",
+          "port": 9002
+        },
+        "peer": {
+          "ip": "127.0.0.1",
+          "port": 9102
+        }
+      }
+    ]
   },
   "rate": {
     "alpha": 0.2,

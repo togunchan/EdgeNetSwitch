@@ -20,9 +20,11 @@
 
 namespace edgenetswitch
 {
-    UdpReceiver::UdpReceiver(MessagingBus &bus, int port, FdRegistry *fd_registry,
+    UdpReceiver::UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
+                             LifecycleIdGenerator &lifecycle_gen, FdRegistry *fd_registry,
                              IngressMode ingress_mode)
-        : bus_(bus), port_(port), fd_registry_(fd_registry), ingress_mode_((ingress_mode))
+        : bus_(bus), switchPort_(switchPort), listenPort_(listenPort),
+          lifecycle_gen_(lifecycle_gen), fd_registry_(fd_registry), ingress_mode_(ingress_mode)
     {
     }
 
@@ -47,7 +49,7 @@ namespace edgenetswitch
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port = htons(port_);
+        addr.sin_port = htons(listenPort_);
 
         if (bind(socket_fd_.get(), (struct sockaddr *)&addr, sizeof(addr)) < 0)
         {
@@ -95,7 +97,8 @@ namespace edgenetswitch
         // Start worker thread
         worker_ = std::thread(&UdpReceiver::run, this);
 
-        std::cout << "[UDP] Listening on port " << port_ << "\n";
+        std::cout << "[UDP] Listening on port " << listenPort_ << " for switch port " << switchPort_
+                  << "\n";
     }
 
     void UdpReceiver::stop()
@@ -180,6 +183,7 @@ namespace edgenetswitch
         auto packet = parsePacket(data);
         packet.lifecycle_id = lifecycle_id;
         packet.ingress_timestamp_ns = ingress_ts;
+        packet.ingress_port = switchPort_;
 
         if (!packet.valid)
         {
@@ -227,8 +231,6 @@ namespace edgenetswitch
                          toString(result.reason));
             return UdpReadResult::PacketProcessed;
         }
-
-        sendto(socket_fd_.get(), buffer, len, 0, (struct sockaddr *)&client_addr, addr_len);
 
         Message msg{};
         msg.type = MessageType::PacketRx;

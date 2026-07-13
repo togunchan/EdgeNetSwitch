@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <vector>
 
 namespace edgenetswitch::core
 {
@@ -17,10 +18,24 @@ namespace edgenetswitch::core
         std::uint32_t tick_ms{100};
     };
 
+    struct UdpEndpointConfig
+    {
+        std::string ip{"127.0.0.1"};
+        std::uint16_t port{0};
+    };
+
+    struct UdpIngressConfig
+    {
+        std::uint32_t switch_port{0};
+
+        UdpEndpointConfig listen;
+        UdpEndpointConfig peer;
+    };
+
     struct UdpConfig
     {
         bool enabled{false};
-        int port{9000};
+        std::vector<UdpIngressConfig> endpoints;
     };
 
     struct RateConfig

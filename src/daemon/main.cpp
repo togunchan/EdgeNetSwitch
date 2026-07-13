@@ -5,13 +5,12 @@
 #include "edgenetswitch/core/TimeUtils.hpp"
 #include "edgenetswitch/failure/FailureInjector.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
-#include "edgenetswitch/network/IngressMode.hpp"
-#include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/packet/PacketGenerator.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
 #include "edgenetswitch/runtime/ShutdownReason.hpp"
 #include "edgenetswitch/runtime/ShutdownRequest.hpp"
@@ -23,7 +22,6 @@
 #include "edgenetswitch/system/epoll/ControlReadyHandler.hpp"
 #include "edgenetswitch/system/epoll/EpollEventLoop.hpp"
 #include "edgenetswitch/system/epoll/EpollManager.hpp"
-#include "edgenetswitch/system/epoll/UdpReadyHandler.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/system/fd/FdType.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
@@ -272,25 +270,18 @@ int main(int argc, char *argv[])
         port2.setState(PortState::Up);
         interfaces.addPort(std::move((port2)));
 
-        SwitchPort port3(3, "eth3");
-        port3.setState(PortState::Up);
-        interfaces.addPort(std::move((port3)));
-
-        SwitchPort port4(4, "eth4");
-        port4.setState(PortState::Up);
-        interfaces.addPort(std::move((port4)));
-
-        SwitchPort port5(5, "eth5");
-        port5.setState(PortState::Up);
-        interfaces.addPort(std::move(port5));
-
         MacTable macTable(1024);
         SwitchForwardingEngine forwardingEngine(macTable, interfaces);
         transport::TransportManager transportManager;
 
-        transportManager.registerBackend(
-            1, std::make_unique<transport::UdpPortBackend>(
-                   1, transport::UdpEndpoint{"127.0.0.1", 9101}, &fd_registry));
+        for (const auto &endpoint : cfg.udp.endpoints)
+        {
+            transportManager.registerBackend(
+                endpoint.switch_port,
+                std::make_unique<transport::UdpPortBackend>(
+                    endpoint.switch_port,
+                    transport::UdpEndpoint{endpoint.peer.ip, endpoint.peer.port}, &fd_registry));
+        }
 
         PacketProcessor packetProcessor(bus, &forwardingEngine, &transportManager, failureInjector);
         PacketStats packetStats(bus);
@@ -299,24 +290,16 @@ int main(int argc, char *argv[])
         TelemetryExportManager exportManager;
         FileDescriptor control_fd = createControlSocket(&fd_registry);
         std::thread epollThread;
-        std::unique_ptr<UdpReceiver> udpReceiver;
         RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
-        std::unique_ptr<UdpReadyHandler> udpHandler;
         std::unique_ptr<control::ControlServer> controlServer;
         std::unique_ptr<ControlReadyHandler> controlHandler;
+        LifecycleIdGenerator lifecycleGenerator;
+        IngressManager ingressManager(bus, lifecycleGenerator, epollManager, epollLoop,
+                                      fd_registry);
 
         if (cfg.udp.enabled)
         {
-            udpReceiver = std::make_unique<UdpReceiver>(bus, cfg.udp.port, &fd_registry,
-                                                        IngressMode::NonBlocking);
-            udpReceiver->initializeSocket();
-
-            udpHandler = std::make_unique<UdpReadyHandler>(*udpReceiver);
-
-            Logger::debug("UDP fd = " + std::to_string(udpReceiver->fd()));
-
-            epollManager.add(udpReceiver->fd(), EPOLLIN);
-            epollLoop.registerHandler(udpReceiver->fd(), udpHandler.get());
+            ingressManager.initialize(cfg.udp);
         }
 
         exportManager.addExporter(std::make_unique<StdoutTelemetryExporter>());
@@ -424,12 +407,17 @@ int main(int argc, char *argv[])
                       [](const Message &msg)
                       {
                           const Packet &p = std::get<Packet>(msg.payload);
-                          Logger::info("Packet received: "
-                                       "id=" +
-                                       std::to_string(p.id) + " payload=" + p.payload +
-                                       " timestamp=" + formatTimestamp(p.timestamp_ms) +
-                                       " source_ip=" + p.source_ip +
-                                       " source_port=" + std::to_string(p.source_port));
+
+                          Logger::info(
+                              "Packet received: "
+                              "id=" +
+                              std::to_string(p.id) + " payload=" + p.payload + " timestamp=" +
+                              formatTimestamp(p.timestamp_ms) + " source_ip=" + p.source_ip +
+                              " source_port=" + std::to_string(p.source_port) + " ingress_port=" +
+                              (p.ingress_port ? std::to_string(*p.ingress_port) : "none") +
+                              " source_mac=" + (p.source_mac ? p.source_mac->toString() : "none") +
+                              " destination_mac=" +
+                              (p.destination_mac ? p.destination_mac->toString() : "none"));
                       });
 
         bus.subscribe(MessageType::ForwardingDecisionMade,
@@ -518,13 +506,7 @@ int main(int argc, char *argv[])
         }
 
         destroyControlSocket(control_fd);
-
-        if (udpReceiver)
-        {
-            Logger::info("[SHUTDOWN] Stopping UDP receiver");
-            udpReceiver->stop();
-            Logger::info("[SHUTDOWN] UDP receiver stopped");
-        }
+        ingressManager.shutdown();
 
         Logger::info("[SHUTDOWN] Stopping telemetry export manager");
         exportManager.stop();

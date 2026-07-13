@@ -49,7 +49,11 @@ namespace
         cfg.log.file = "control-test.log";
         cfg.daemon.tick_ms = 250;
         cfg.udp.enabled = true;
-        cfg.udp.port = 9200;
+        cfg.udp.endpoints.push_back({
+            .switch_port = 7,
+            .listen = {.ip = "0.0.0.0", .port = 9200},
+            .peer = {.ip = "127.0.0.1", .port = 9300},
+        });
         cfg.rate.alpha = 0.5;
         cfg.rate.window_ms = 4000;
         return cfg;
@@ -256,7 +260,8 @@ TEST_CASE("Text mode exposes key=value output", "[control][text]")
         {"version", {"version=", "protocol=", "build="}},
         {"help:version", {"command=", "description="}},
         {"packet-stats", {"rx_packets=", "rx_bytes=", "drops_total="}},
-        {"show-config", {"log.level=", "daemon.tick_ms=", "udp.port=", "rate.window_ms="}},
+        {"show-config",
+         {"log.level=", "daemon.tick_ms=", "udp.endpoint.switch_port=", "rate.window_ms="}},
     };
 
     for (const auto &tc : cases)
@@ -320,7 +325,9 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(contains(resp.payload, "log.file="));
         CHECK(contains(resp.payload, "daemon.tick_ms="));
         CHECK(contains(resp.payload, "udp.enabled="));
-        CHECK(contains(resp.payload, "udp.port="));
+        CHECK(contains(resp.payload, "udp.endpoint.switch_port=7\n"));
+        CHECK(contains(resp.payload, "udp.endpoint.listen=0.0.0.0:9200\n"));
+        CHECK(contains(resp.payload, "udp.endpoint.peer=127.0.0.1:9300\n"));
         CHECK(contains(resp.payload, "rate.alpha="));
         CHECK(contains(resp.payload, "rate.window_ms="));
     }
@@ -336,7 +343,17 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(j["data"]["log"].contains("file"));
         CHECK(j["data"]["daemon"].contains("tick_ms"));
         CHECK(j["data"]["udp"].contains("enabled"));
-        CHECK(j["data"]["udp"].contains("port"));
+        REQUIRE(j["data"]["udp"]["endpoints"].is_array());
+        REQUIRE(j["data"]["udp"]["endpoints"].size() == 1);
+        const auto &endpoint = j["data"]["udp"]["endpoints"][0];
+        REQUIRE(endpoint.contains("switch_port"));
+        REQUIRE(endpoint.contains("listen"));
+        REQUIRE(endpoint.contains("peer"));
+        CHECK(endpoint["switch_port"] == 7);
+        CHECK(endpoint["listen"]["ip"] == "0.0.0.0");
+        CHECK(endpoint["listen"]["port"] == 9200);
+        CHECK(endpoint["peer"]["ip"] == "127.0.0.1");
+        CHECK(endpoint["peer"]["port"] == 9300);
         CHECK(j["data"]["rate"].contains("alpha"));
         CHECK(j["data"]["rate"].contains("window_ms"));
     }
