@@ -293,7 +293,9 @@ int main(int argc, char *argv[])
         RuntimeStatusBuilder statusBuilder(toSmootherConfig(cfg.rate));
         std::unique_ptr<control::ControlServer> controlServer;
         std::unique_ptr<ControlReadyHandler> controlHandler;
-        IngressManager ingressManager(bus, epollManager, epollLoop, fd_registry);
+        LifecycleIdGenerator lifecycleGenerator;
+        IngressManager ingressManager(bus, lifecycleGenerator, epollManager, epollLoop,
+                                      fd_registry);
 
         if (cfg.udp.enabled)
         {

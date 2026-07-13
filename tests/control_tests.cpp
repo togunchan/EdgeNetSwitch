@@ -325,7 +325,9 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(contains(resp.payload, "log.file="));
         CHECK(contains(resp.payload, "daemon.tick_ms="));
         CHECK(contains(resp.payload, "udp.enabled="));
-        CHECK(contains(resp.payload, "udp.endpoint.switch_port=7 listen_port=9200"));
+        CHECK(contains(resp.payload, "udp.endpoint.switch_port=7\n"));
+        CHECK(contains(resp.payload, "udp.endpoint.listen=0.0.0.0:9200\n"));
+        CHECK(contains(resp.payload, "udp.endpoint.peer=127.0.0.1:9300\n"));
         CHECK(contains(resp.payload, "rate.alpha="));
         CHECK(contains(resp.payload, "rate.window_ms="));
     }
@@ -343,8 +345,15 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(j["data"]["udp"].contains("enabled"));
         REQUIRE(j["data"]["udp"]["endpoints"].is_array());
         REQUIRE(j["data"]["udp"]["endpoints"].size() == 1);
-        CHECK(j["data"]["udp"]["endpoints"][0]["switch_port"] == 7);
-        CHECK(j["data"]["udp"]["endpoints"][0]["listen_port"] == 9200);
+        const auto &endpoint = j["data"]["udp"]["endpoints"][0];
+        REQUIRE(endpoint.contains("switch_port"));
+        REQUIRE(endpoint.contains("listen"));
+        REQUIRE(endpoint.contains("peer"));
+        CHECK(endpoint["switch_port"] == 7);
+        CHECK(endpoint["listen"]["ip"] == "0.0.0.0");
+        CHECK(endpoint["listen"]["port"] == 9200);
+        CHECK(endpoint["peer"]["ip"] == "127.0.0.1");
+        CHECK(endpoint["peer"]["port"] == 9300);
         CHECK(j["data"]["rate"].contains("alpha"));
         CHECK(j["data"]["rate"].contains("window_ms"));
     }

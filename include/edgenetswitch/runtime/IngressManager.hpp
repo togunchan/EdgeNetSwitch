@@ -14,8 +14,9 @@ namespace edgenetswitch
     class IngressManager
     {
     public:
-        explicit IngressManager(MessagingBus &bus, EpollManager &epollManager,
-                                EpollEventLoop &epollEventLoop, FdRegistry &fdRegistry);
+        explicit IngressManager(MessagingBus &bus, LifecycleIdGenerator &lifecycleGenerator,
+                                EpollManager &epollManager, EpollEventLoop &epollEventLoop,
+                                FdRegistry &fdRegistry);
 
         void initialize(const core::UdpConfig &udpConfig);
         void shutdown();
@@ -33,5 +34,6 @@ namespace edgenetswitch
         };
 
         std::vector<UdpIngressEndpoint> ingressEndpoints_;
+        LifecycleIdGenerator &lifecycleGenerator_;
     };
 } // namespace edgenetswitch

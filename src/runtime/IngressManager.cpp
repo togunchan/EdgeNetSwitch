@@ -8,10 +8,11 @@
 
 namespace edgenetswitch
 {
-    IngressManager::IngressManager(MessagingBus &bus, EpollManager &epollManager,
-                                   EpollEventLoop &epollEventLoop, FdRegistry &fdRegistry)
-        : bus_(bus), epollManager_(epollManager), epollLoop_(epollEventLoop),
-          fdRegistry_(fdRegistry)
+    IngressManager::IngressManager(MessagingBus &bus, LifecycleIdGenerator &lifecycleGenerator,
+                                   EpollManager &epollManager, EpollEventLoop &epollEventLoop,
+                                   FdRegistry &fdRegistry)
+        : bus_(bus), lifecycleGenerator_(lifecycleGenerator), epollManager_(epollManager),
+          epollLoop_(epollEventLoop), fdRegistry_(fdRegistry)
     {
     }
 
@@ -22,8 +23,8 @@ namespace edgenetswitch
             UdpIngressEndpoint endpoint;
 
             endpoint.receiver = std::make_unique<UdpReceiver>(
-                bus_, endpointConfig.switch_port, endpointConfig.listen.port, &fdRegistry_,
-                IngressMode::NonBlocking);
+                bus_, endpointConfig.switch_port, endpointConfig.listen.port, lifecycleGenerator_,
+                &fdRegistry_, IngressMode::NonBlocking);
             endpoint.receiver->initializeSocket();
 
             endpoint.handler = std::make_unique<UdpReadyHandler>(*endpoint.receiver);

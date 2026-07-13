@@ -23,7 +23,8 @@ namespace edgenetswitch
     {
     public:
         UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
-                    FdRegistry *fd_registry, IngressMode ingress_mode = IngressMode::Blocking);
+                    LifecycleIdGenerator &lifecycle_gen, FdRegistry *fd_registry,
+                    IngressMode ingress_mode = IngressMode::Blocking);
         ~UdpReceiver();
 
         void initializeSocket();
@@ -46,7 +47,7 @@ namespace edgenetswitch
         FdRegistry *fd_registry_{nullptr};
         std::atomic_bool running_{false};
         std::thread worker_;
-        LifecycleIdGenerator lifecycle_gen_;
+        LifecycleIdGenerator &lifecycle_gen_;
         IngressMode ingress_mode_{IngressMode::Blocking};
     };
 } // namespace edgenetswitch

@@ -21,9 +21,10 @@
 namespace edgenetswitch
 {
     UdpReceiver::UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
-                             FdRegistry *fd_registry, IngressMode ingress_mode)
-        : bus_(bus), switchPort_(switchPort), listenPort_(listenPort), fd_registry_(fd_registry),
-          ingress_mode_(ingress_mode)
+                             LifecycleIdGenerator &lifecycle_gen, FdRegistry *fd_registry,
+                             IngressMode ingress_mode)
+        : bus_(bus), switchPort_(switchPort), listenPort_(listenPort),
+          lifecycle_gen_(lifecycle_gen), fd_registry_(fd_registry), ingress_mode_(ingress_mode)
     {
     }
 
