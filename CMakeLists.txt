@@ -572,7 +572,12 @@ if(BUILD_TESTING)
 
     add_executable(PacketForwardingRuntimeTests
         tests/packet_forwarding_runtime_tests.cpp
+        src/network/UdpReceiver.cpp
+        src/packet/PacketParser.cpp
         src/packet/PacketProcessor.cpp
+        src/packet/PacketValidator.cpp
+        src/system/fd/FileDescriptor.cpp
+        src/system/fd/FdRegistry.cpp
         src/transport/TransportManager.cpp
     )
 
