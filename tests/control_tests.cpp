@@ -49,7 +49,11 @@ namespace
         cfg.log.file = "control-test.log";
         cfg.daemon.tick_ms = 250;
         cfg.udp.enabled = true;
-        cfg.udp.endpoints.push_back({7, 9200});
+        cfg.udp.endpoints.push_back({
+            .switch_port = 7,
+            .listen = {.ip = "0.0.0.0", .port = 9200},
+            .peer = {.ip = "127.0.0.1", .port = 9300},
+        });
         cfg.rate.alpha = 0.5;
         cfg.rate.window_ms = 4000;
         return cfg;
