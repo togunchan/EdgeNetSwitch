@@ -187,11 +187,14 @@ The test suite covers lifecycle accounting, bounded async packet processing, det
 
 ## Quick Demo (No Hardware Required)
 
-Send a UDP packet to any configured ingress endpoint:
+Send a valid packet to any configured ingress endpoint:
 
 ```bash
-echo "test-packet" | nc -u 127.0.0.1 9001
-echo "test-packet" | nc -u 127.0.0.1 9002
+printf 'id=1;\nsrc=00:11:22:33:44:55;\ndst=ff:ff:ff:ff:ff:ff;\npayload=Hello EdgeNetSwitch\n' \
+| nc -u 127.0.0.1 9001
+
+printf 'id=2;\nsrc=00:11:22:33:44:66;\ndst=ff:ff:ff:ff:ff:ff;\npayload=Hello EdgeNetSwitch\n' \
+| nc -u 127.0.0.1 9002
 ```
 
 Inspect system state:
