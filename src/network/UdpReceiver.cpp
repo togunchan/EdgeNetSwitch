@@ -137,25 +137,33 @@ namespace edgenetswitch
         }
     }
 
-    UdpReadResult UdpReceiver::handleReadable()
+    UdpReceiveStatus UdpReceiver::handleReadable()
     {
-        char buffer[1024];
-        sockaddr_in client_addr{};
-        socklen_t addr_len = sizeof(client_addr);
+        std::array<char, 1024> buffer{};
+        iovec io{};
+        io.iov_base = buffer.data();
+        io.iov_len = buffer.size();
 
-        ssize_t len = recvfrom(socket_fd_.get(), buffer, sizeof(buffer), 0,
-                               (struct sockaddr *)&client_addr, &addr_len);
+        sockaddr_in client_addr{};
+
+        msghdr message{};
+        message.msg_name = &client_addr;
+        message.msg_namelen = sizeof(client_addr);
+        message.msg_iov = &io;
+        message.msg_iovlen = 1;
+
+        const ssize_t len = ::recvmsg(socket_fd_.get(), &message, 0);
 
         if (len < 0)
         {
             if (errno == EBADF)
             {
                 running_ = false;
-                return UdpReadResult::Closed; // socket closed, exit thread cleanly
+                return UdpReceiveStatus::Closed; // socket closed, exit thread cleanly
             }
 
             if (errno == EINTR)
-                return UdpReadResult::NoData;
+                return UdpReceiveStatus::Interrupted;
 
             // Non-blocking sockets return EAGAIN/EWOULDBLOCK when no packet is available yet.
             // This is an expected runtime condition, not a fatal socket error.
@@ -167,16 +175,16 @@ namespace edgenetswitch
                 msg.payload = IngressIdlePoll{msg.timestamp_ms};
                 bus_.publish(std::move(msg));
 
-                return UdpReadResult::NoData;
+                return UdpReceiveStatus::NoDataAvailable;
             }
 
             Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
-            return UdpReadResult::Error;
+            return UdpReceiveStatus::Error;
         }
 
         const auto ingress_ts = nowNs();
 
-        std::string data(buffer, static_cast<size_t>(len));
+        std::string data(buffer.data(), static_cast<size_t>(len));
         Logger::info("[UDP] Packet received (" + std::to_string(len) + " bytes)");
 
         auto lifecycle_id = lifecycle_gen_.next();
@@ -199,7 +207,7 @@ namespace edgenetswitch
 
             bus_.publish(std::move(dropMsg));
             Logger::warn("[DROP][UDP][PARSE] len=" + std::to_string(len) + " data=[" + data + "]");
-            return UdpReadResult::PacketProcessed;
+            return UdpReceiveStatus::DatagramReceived;
         }
         packet.timestamp_ms = nowMs();
         packet.wire_size = static_cast<std::uint32_t>(len);
@@ -229,7 +237,7 @@ namespace edgenetswitch
             bus_.publish(std::move(dropMsg));
             Logger::warn("[DROP][UDP][VALIDATION] Packet rejected: reason=" +
                          toString(result.reason));
-            return UdpReadResult::PacketProcessed;
+            return UdpReceiveStatus::DatagramReceived;
         }
 
         Message msg{};
@@ -239,7 +247,7 @@ namespace edgenetswitch
 
         bus_.publish(std::move(msg));
 
-        return UdpReadResult::PacketProcessed;
+        return UdpReceiveStatus::DatagramReceived;
     }
 
     int UdpReceiver::fd() const noexcept
@@ -257,22 +265,29 @@ namespace edgenetswitch
         {
             auto result = handleReadable();
 
-            if (result == UdpReadResult::PacketProcessed)
+            if (result == UdpReceiveStatus::DatagramReceived)
             {
                 ++packets_processed;
             }
-            if (result == UdpReadResult::NoData)
+            if (result == UdpReceiveStatus::NoDataAvailable)
             {
                 Logger::debug("[UDP] drained queue packets=" + std::to_string(packets_processed));
                 break;
             }
 
-            if (result == UdpReadResult::Closed)
+            if (result == UdpReceiveStatus::Interrupted)
+
+            {
+
+                continue;
+            }
+
+            if (result == UdpReceiveStatus::Closed)
             {
                 break;
             }
 
-            if (result == UdpReadResult::Error)
+            if (result == UdpReceiveStatus::Error)
             {
                 break;
             }

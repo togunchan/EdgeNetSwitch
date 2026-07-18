@@ -11,10 +11,11 @@
 
 namespace edgenetswitch
 {
-    enum class UdpReadResult
+    enum class UdpReceiveStatus
     {
-        PacketProcessed,
-        NoData,
+        DatagramReceived,
+        NoDataAvailable,
+        Interrupted,
         Closed,
         Error
     };
@@ -38,7 +39,7 @@ namespace edgenetswitch
 
     private:
         void run();
-        UdpReadResult handleReadable();
+        UdpReceiveStatus handleReadable();
 
         MessagingBus &bus_;
         std::uint32_t switchPort_;
