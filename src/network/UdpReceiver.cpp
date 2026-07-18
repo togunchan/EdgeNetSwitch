@@ -20,6 +20,39 @@
 
 namespace edgenetswitch
 {
+    namespace
+    {
+
+        void logMsgFlags(int flags)
+        {
+            if (flags == 0)
+            {
+                Logger::debug("[UDP] No message flags");
+                return;
+            }
+
+            if (flags & MSG_TRUNC)
+            {
+                Logger::info("[UDP] MSG_TRUNC");
+            }
+
+            if (flags & MSG_CTRUNC)
+            {
+                Logger::info("[UDP] MSG_CTRUNC");
+            }
+
+            if (flags & MSG_OOB)
+            {
+                Logger::info("[UDP] MSG_OOB");
+            }
+
+            if (flags & MSG_EOR)
+            {
+                Logger::info("[UDP] MSG_EOR");
+            }
+        }
+    } // anonymous namespace
+
     UdpReceiver::UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
                              LifecycleIdGenerator &lifecycle_gen, FdRegistry *fd_registry,
                              IngressMode ingress_mode)
@@ -181,6 +214,10 @@ namespace edgenetswitch
             Logger::error("[UDP] recvfrom failed: " + std::string(strerror(errno)));
             return UdpReceiveStatus::Error;
         }
+
+        Logger::debug("[UDP] recvmsg: len=" + std::to_string(len) + ", flags=0x" +
+                      std::to_string(message.msg_flags));
+        logMsgFlags(message.msg_flags);
 
         const auto ingress_ts = nowNs();
 
