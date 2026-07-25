@@ -1,6 +1,10 @@
 #include "edgenetswitch/network/UdpReceiver.hpp"
 
+#include <array>
+#include <asm-generic/socket.h>
+#include <cstddef>
 #include <cstring>
+#include <ctime>
 #include <fcntl.h>
 #include <iostream>
 
@@ -51,6 +55,51 @@ namespace edgenetswitch
                 Logger::info("[UDP] MSG_EOR");
             }
         }
+
+        std::uint64_t timespecToNanoseconds(const timespec &timestamp)
+        {
+            constexpr std::uint64_t nanoseconds_per_second = 1'000'000'000ULL;
+
+            return static_cast<std::uint64_t>(timestamp.tv_sec) * nanoseconds_per_second +
+                   static_cast<std::uint64_t>(timestamp.tv_nsec);
+        }
+
+        std::optional<std::uint64_t> extractKernelReceiveTimestampNs(msghdr &message)
+        {
+            for (cmsghdr *control = CMSG_FIRSTHDR(&message); control != nullptr;
+                 control = CMSG_NXTHDR(&message, control))
+            {
+                Logger::debug(
+                    "[UDP] control message: level=" + std::to_string(control->cmsg_level) +
+                    ", type=" + std::to_string(control->cmsg_type) +
+                    ", len=" + std::to_string(control->cmsg_len));
+
+                if (control->cmsg_level != SOL_SOCKET)
+                {
+                    continue;
+                }
+
+                if (control->cmsg_type != SCM_TIMESTAMPNS)
+                {
+                    continue;
+                }
+
+                if (control->cmsg_len < CMSG_LEN(sizeof(timespec)))
+                {
+                    Logger::warn("[UDP] Invalid SCM_TIMESTAMPNS control message");
+                    return std::nullopt;
+                }
+
+                const auto *timestamp = reinterpret_cast<const timespec *>(CMSG_DATA(control));
+
+                Logger::debug("[UDP] kernel timestamp: sec=" + std::to_string(timestamp->tv_sec) +
+                              ", nsec=" + std::to_string(timestamp->tv_nsec));
+
+                return timespecToNanoseconds(*timestamp);
+            }
+
+            return std::nullopt;
+        }
     } // anonymous namespace
 
     UdpReceiver::UdpReceiver(MessagingBus &bus, std::uint32_t switchPort, std::uint16_t listenPort,
@@ -77,6 +126,19 @@ namespace edgenetswitch
         }
 
         socket_fd_ = FileDescriptor(raw_fd, fd_registry_, FdType::UdpSocket);
+
+        // Activate SO_TIMESTAMPNS
+        int enable_timestamping = 1;
+
+        if (::setsockopt(socket_fd_.get(), SOL_SOCKET, SO_TIMESTAMPNS, &enable_timestamping,
+                         sizeof(enable_timestamping)) < 0)
+        {
+            Logger::error("[UDP] Failed to enable SO_TIMESTAMPNS: " +
+                          std::string(std::strerror(errno)));
+
+            throw std::runtime_error("Failed to enable UDP receive timestamping");
+        }
+        Logger::debug("[UDP] SO_TIMESTAMPNS enabled");
 
         // Bind to port
         sockaddr_in addr{};
@@ -178,12 +240,15 @@ namespace edgenetswitch
         io.iov_len = buffer.size();
 
         sockaddr_in client_addr{};
+        std::array<std::byte, CMSG_SPACE(sizeof(timespec))> control_buffer{};
 
         msghdr message{};
         message.msg_name = &client_addr;
         message.msg_namelen = sizeof(client_addr);
         message.msg_iov = &io;
         message.msg_iovlen = 1;
+        message.msg_control = control_buffer.data();
+        message.msg_controllen = control_buffer.size();
 
         const ssize_t len = ::recvmsg(socket_fd_.get(), &message, 0);
 
@@ -219,6 +284,7 @@ namespace edgenetswitch
                       std::to_string(message.msg_flags));
         logMsgFlags(message.msg_flags);
 
+        const auto kernel_receive_realtime_ns = extractKernelReceiveTimestampNs(message);
         const auto ingress_ts = nowNs();
 
         std::string data(buffer.data(), static_cast<size_t>(len));
@@ -228,6 +294,7 @@ namespace edgenetswitch
         auto packet = parsePacket(data);
         packet.lifecycle_id = lifecycle_id;
         packet.ingress_timestamp_ns = ingress_ts;
+        packet.kernel_receive_realtime_ns = kernel_receive_realtime_ns;
         packet.ingress_port = switchPort_;
 
         if (!packet.valid)
