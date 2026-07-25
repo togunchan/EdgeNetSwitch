@@ -1,6 +1,7 @@
 #pragma once
 #include "edgenetswitch/switching/MacAddress.hpp"
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace edgenetswitch
@@ -41,5 +42,6 @@ namespace edgenetswitch
         std::optional<std::uint32_t> ingress_port;
         std::uint64_t ingress_timestamp_ns{0};
         std::optional<std::uint64_t> kernel_receive_realtime_ns;
+        std::optional<std::uint32_t> kernel_receive_drop_count;
     };
 } // namespace edgenetswitch

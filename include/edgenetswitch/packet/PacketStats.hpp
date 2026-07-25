@@ -31,6 +31,8 @@ namespace edgenetswitch
         std::uint64_t average_processing_latency_ns{0};
         std::uint64_t latency_samples{0};
         std::uint64_t udp_drain_completions{0};
+        std::uint64_t last_kernel_receive_realtime_ns{0};
+        std::uint32_t last_kernel_receive_drop_count{0};
     };
 
     class PacketStats
@@ -63,6 +65,8 @@ namespace edgenetswitch
         std::atomic_uint64_t max_processing_latency_ns_{0};
         std::atomic_uint64_t latency_samples_{0};
         std::atomic_uint64_t udp_drain_completions_{0};
+        std::atomic<std::uint64_t> last_kernel_receive_realtime_ns_{0};
+        std::atomic<std::uint32_t> last_kernel_receive_drop_count_{0};
     };
 
 } // namespace edgenetswitch

@@ -255,6 +255,8 @@ namespace edgenetswitch::control
             j["max_processing_latency_ns"] = snap->packet.max_processing_latency_ns;
             j["latency_samples"] = snap->packet.latency_samples;
             j["udp_drain_completions"] = snap->packet.udp_drain_completions;
+            j["last_kernel_receive_realtime_ns"] = snap->packet.last_kernel_receive_realtime_ns;
+            j["last_kernel_receive_drop_count"] = snap->packet.last_kernel_receive_drop_count;
 
             return makeJsonSuccess(j);
         }
@@ -293,6 +295,10 @@ namespace edgenetswitch::control
             "\n";
         payload +=
             "udp_drain_completions=" + std::to_string(snap->packet.udp_drain_completions) + "\n";
+        payload += "last_kernel_receive_realtime_ns=" +
+                   std::to_string(snap->packet.last_kernel_receive_realtime_ns) + "\n";
+        payload += "last_kernel_receive_drop_count=" +
+                   std::to_string(snap->packet.last_kernel_receive_drop_count) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
@@ -632,7 +638,8 @@ namespace edgenetswitch::control
             {"packet-stats",
              {.name = "packet-stats",
               .description = "packet pipeline statistics",
-              .fields = {"rx_packets", "rx_bytes", "drops"},
+              .fields = {"rx_packets", "rx_bytes", "drops", "last_kernel_receive_realtime_ns",
+                         "last_kernel_receive_drop_count"},
               .handler = handlePacketStats}},
 
             {"show-config",
