@@ -18,6 +18,7 @@
 #include "edgenetswitch/system/fd/FdType.hpp"
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sstream>
 #include <sys/fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -349,8 +350,11 @@ namespace edgenetswitch
 
         const auto userspace_receive_realtime_ns = nowRealtimeNs();
 
+        std::ostringstream flags_stream;
+        flags_stream << std::hex << message.msg_flags;
+
         Logger::debug("[UDP] recvmsg: len=" + std::to_string(len) + ", flags=0x" +
-                      std::to_string(message.msg_flags));
+                      flags_stream.str());
         logMsgFlags(message.msg_flags);
 
         const auto kernel_receive_realtime_ns = extractKernelReceiveTimestampNs(message);
