@@ -210,6 +210,8 @@ namespace edgenetswitch::control
             return "queue_overflow";
         case PacketDropReason::RateLimited:
             return "rate_limited";
+        case PacketDropReason::DatagramTruncated:
+            return "datagram_truncated";
         default:
             return "unknown";
         }

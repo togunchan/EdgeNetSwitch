@@ -53,5 +53,6 @@ namespace edgenetswitch
         LifecycleIdGenerator &lifecycle_gen_;
         IngressMode ingress_mode_{IngressMode::Blocking};
         std::uint32_t receive_buffer_bytes_{0};
+        static constexpr std::size_t UDP_RECEIVE_BUFFER_SIZE = 2048;
     };
 } // namespace edgenetswitch

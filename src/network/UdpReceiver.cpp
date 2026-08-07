@@ -296,7 +296,7 @@ namespace edgenetswitch
 
     UdpReceiveStatus UdpReceiver::handleReadable()
     {
-        std::array<char, 1024> buffer{};
+        std::array<char, UDP_RECEIVE_BUFFER_SIZE> buffer{};
         iovec io{};
         io.iov_base = buffer.data();
         io.iov_len = buffer.size();
@@ -356,6 +356,26 @@ namespace edgenetswitch
         Logger::debug("[UDP] recvmsg: len=" + std::to_string(len) + ", flags=0x" +
                       flags_stream.str());
         logMsgFlags(message.msg_flags);
+
+        if ((message.msg_flags & MSG_TRUNC) != 0)
+        {
+            const auto ts = nowMs();
+            const auto lifecycle_id = lifecycle_gen_.next();
+
+            Message dropMsg{};
+            dropMsg.type = MessageType::PacketDropped;
+            dropMsg.timestamp_ms = ts;
+            dropMsg.payload = PacketDropped{.reason = PacketDropReason::DatagramTruncated,
+                                            .timestamp_ms = ts,
+                                            .packet_id = 0,
+                                            .lifecycle_id = lifecycle_id};
+
+            bus_.publish(std::move(dropMsg));
+
+            Logger::warn("[DROP][UDP][TRUNCATED] Datagram exceeded receive buffer capacity");
+
+            return UdpReceiveStatus::DatagramReceived;
+        }
 
         const auto kernel_receive_realtime_ns = extractKernelReceiveTimestampNs(message);
         const auto kernel_receive_drop_count = extractKernelReceiveDropCount(message);

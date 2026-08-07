@@ -10,12 +10,13 @@ namespace edgenetswitch
     {
         ParseError,
         ValidationError,
+        DatagramTruncated,
         QueueOverflow,
         SimulatedLoss,
         RateLimited,
         ProcessingError,
         InternalError,
-        Unknown
+        Unknown,
     };
 
     struct PacketDropped
