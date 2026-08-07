@@ -185,8 +185,21 @@ namespace edgenetswitch
 
             throw std::runtime_error("Failed to enable UDP receive queue overflow reporting");
         }
-
         Logger::debug("[UDP] SO_RXQ_OVFL enabled");
+
+        // Read the effective UDP receive buffer size applied by the kernel.
+        socklen_t option_length = sizeof(receive_buffer_bytes_);
+
+        if (::getsockopt(socket_fd_.get(), SOL_SOCKET, SO_RCVBUF, &receive_buffer_bytes_,
+                         &option_length) < 0)
+        {
+            Logger::error("[UDP] Failed to read SO_RCVBUF: " + std::string(std::strerror(errno)));
+
+            throw std::runtime_error("Failed to read UDP receive buffer size");
+        }
+
+        Logger::info("[UDP] effective SO_RCVBUF=" + std::to_string(receive_buffer_bytes_) +
+                     " bytes");
 
         // Bind to port
         sockaddr_in addr{};
@@ -415,6 +428,11 @@ namespace edgenetswitch
         return socket_fd_.get();
     }
 
+    std::uint32_t UdpReceiver::receiveBufferBytes() const noexcept
+    {
+        return receive_buffer_bytes_;
+    }
+
     void UdpReceiver::processReadableEvent()
     {
         constexpr std::size_t MaxPacketsPerWakeup = 256;
@@ -456,5 +474,15 @@ namespace edgenetswitch
         {
             Logger::debug("[UDP] receive budget exhausted");
         }
+    }
+
+    std::uint32_t UdpReceiver::switchPort() const noexcept
+    {
+        return switchPort_;
+    }
+
+    std::uint16_t UdpReceiver::listenPort() const noexcept
+    {
+        return listenPort_;
     }
 } // namespace edgenetswitch

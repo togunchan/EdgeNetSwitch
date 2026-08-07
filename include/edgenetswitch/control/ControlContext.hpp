@@ -5,6 +5,11 @@
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
 
+namespace edgenetswitch
+{
+    class IngressManager;
+}
+
 namespace edgenetswitch::daemon
 {
     class SnapshotPublisher;
@@ -27,6 +32,7 @@ namespace edgenetswitch::control
         SwitchForwardingEngine *forwarding_engine{nullptr};
         FdRegistry *fd_registry{nullptr};
         edgenetswitch::transport::TransportManager *transport_manager{};
+        const IngressManager *ingress_manager{nullptr};
     };
 
 } // namespace edgenetswitch::control

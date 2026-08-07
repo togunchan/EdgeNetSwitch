@@ -32,10 +32,12 @@ namespace edgenetswitch
         void start();
         void stop();
 
-        [[nodiscard]]
-        int fd() const noexcept;
-
         void processReadableEvent();
+
+        [[nodiscard]] int fd() const noexcept;
+        [[nodiscard]] std::uint32_t receiveBufferBytes() const noexcept;
+        [[nodiscard]] std::uint32_t switchPort() const noexcept;
+        [[nodiscard]] std::uint16_t listenPort() const noexcept;
 
     private:
         void run();
@@ -50,5 +52,6 @@ namespace edgenetswitch
         std::thread worker_;
         LifecycleIdGenerator &lifecycle_gen_;
         IngressMode ingress_mode_{IngressMode::Blocking};
+        std::uint32_t receive_buffer_bytes_{0};
     };
 } // namespace edgenetswitch

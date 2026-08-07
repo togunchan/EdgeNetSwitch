@@ -11,6 +11,14 @@
 
 namespace edgenetswitch
 {
+    struct IngressSocketSnapshot
+    {
+        std::uint32_t switch_port{0};
+        std::uint16_t listen_port{0};
+        int fd{-1};
+        std::uint32_t receive_buffer_bytes{0};
+    };
+
     class IngressManager
     {
     public:
@@ -20,6 +28,8 @@ namespace edgenetswitch
 
         void initialize(const core::UdpConfig &udpConfig);
         void shutdown();
+
+        [[nodiscard]] std::vector<IngressSocketSnapshot> snapshot() const;
 
     private:
         MessagingBus &bus_;

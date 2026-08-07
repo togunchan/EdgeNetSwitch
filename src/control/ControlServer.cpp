@@ -6,6 +6,7 @@
 #include "edgenetswitch/control/ControlWire.hpp"
 
 #include "edgenetswitch/core/Logger.hpp"
+#include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
 #include <cerrno>
 #include <cstring>
@@ -20,9 +21,11 @@ namespace edgenetswitch::control
     ControlServer::ControlServer(FileDescriptor &listen_fd, daemon::SnapshotPublisher &publisher,
                                  const core::Config &config, MessagingBus &bus,
                                  SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
-                                 edgenetswitch::transport::TransportManager &transport_manager)
+                                 edgenetswitch::transport::TransportManager &transport_manager,
+                                 IngressManager &ingress_manager)
         : listen_fd_(listen_fd), publisher_(publisher), config_(config), bus_(bus),
-          forwarding_engine_(forwarding_engine), fd_registry_(fd_registry), transport_manager_(transport_manager)
+          forwarding_engine_(forwarding_engine), fd_registry_(fd_registry),
+          transport_manager_(transport_manager), ingress_manager_(ingress_manager)
 
     {
     }
@@ -80,10 +83,13 @@ namespace edgenetswitch::control
 
             Logger::info("Control command received: " + req.command);
 
-            control::ControlContext ctx{
-                .publisher = &publisher_, .config = &config_, .bus = &bus_,
-                .forwarding_engine = &forwarding_engine_, .fd_registry = &fd_registry_,
-                .transport_manager = &transport_manager_};
+            control::ControlContext ctx{.publisher = &publisher_,
+                                        .config = &config_,
+                                        .bus = &bus_,
+                                        .forwarding_engine = &forwarding_engine_,
+                                        .fd_registry = &fd_registry_,
+                                        .transport_manager = &transport_manager_,
+                                        .ingress_manager = &ingress_manager_};
 
             const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
             writeControlResponse(client_fd, resp);
