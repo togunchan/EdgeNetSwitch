@@ -347,12 +347,24 @@ namespace edgenetswitch
             return UdpReceiveStatus::Error;
         }
 
+        const auto userspace_receive_realtime_ns = nowRealtimeNs();
+
         Logger::debug("[UDP] recvmsg: len=" + std::to_string(len) + ", flags=0x" +
                       std::to_string(message.msg_flags));
         logMsgFlags(message.msg_flags);
 
         const auto kernel_receive_realtime_ns = extractKernelReceiveTimestampNs(message);
         const auto kernel_receive_drop_count = extractKernelReceiveDropCount(message);
+
+        std::optional<std::uint64_t> kernel_to_userspace_receive_latency_ns;
+
+        if (kernel_receive_realtime_ns &&
+            userspace_receive_realtime_ns >= *kernel_receive_realtime_ns)
+        {
+            kernel_to_userspace_receive_latency_ns =
+                userspace_receive_realtime_ns - *kernel_receive_realtime_ns;
+        }
+
         const auto ingress_ts = nowNs();
 
         std::string data(buffer.data(), static_cast<size_t>(len));
@@ -364,7 +376,14 @@ namespace edgenetswitch
         packet.ingress_timestamp_ns = ingress_ts;
         packet.kernel_receive_realtime_ns = kernel_receive_realtime_ns;
         packet.kernel_receive_drop_count = kernel_receive_drop_count;
+        packet.kernel_to_userspace_receive_latency_ns = kernel_to_userspace_receive_latency_ns;
         packet.ingress_port = switchPort_;
+
+        if (packet.kernel_to_userspace_receive_latency_ns)
+        {
+            Logger::debug("[UDP] packet kernel-to-userspace latency=" +
+                          std::to_string(*packet.kernel_to_userspace_receive_latency_ns) + " ns");
+        }
 
         if (!packet.valid)
         {

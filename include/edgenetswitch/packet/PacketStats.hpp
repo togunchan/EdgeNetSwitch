@@ -2,12 +2,12 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
-#include <mutex>
 
-#include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
 
 namespace edgenetswitch
 {
@@ -33,6 +33,7 @@ namespace edgenetswitch
         std::uint64_t udp_drain_completions{0};
         std::uint64_t last_kernel_receive_realtime_ns{0};
         std::uint32_t last_kernel_receive_drop_count{0};
+        std::uint64_t last_kernel_to_userspace_receive_latency_ns{0};
     };
 
     class PacketStats
@@ -67,6 +68,7 @@ namespace edgenetswitch
         std::atomic_uint64_t udp_drain_completions_{0};
         std::atomic<std::uint64_t> last_kernel_receive_realtime_ns_{0};
         std::atomic<std::uint32_t> last_kernel_receive_drop_count_{0};
+        std::atomic<std::uint64_t> last_kernel_to_userspace_receive_latency_ns_{0};
     };
 
 } // namespace edgenetswitch

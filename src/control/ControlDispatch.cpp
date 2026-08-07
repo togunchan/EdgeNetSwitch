@@ -258,6 +258,8 @@ namespace edgenetswitch::control
             j["udp_drain_completions"] = snap->packet.udp_drain_completions;
             j["last_kernel_receive_realtime_ns"] = snap->packet.last_kernel_receive_realtime_ns;
             j["last_kernel_receive_drop_count"] = snap->packet.last_kernel_receive_drop_count;
+            j["last_kernel_to_userspace_receive_latency_ns"] =
+                snap->packet.last_kernel_to_userspace_receive_latency_ns;
 
             return makeJsonSuccess(j);
         }
@@ -300,6 +302,8 @@ namespace edgenetswitch::control
                    std::to_string(snap->packet.last_kernel_receive_realtime_ns) + "\n";
         payload += "last_kernel_receive_drop_count=" +
                    std::to_string(snap->packet.last_kernel_receive_drop_count) + "\n";
+        payload += "last_kernel_to_userspace_receive_latency_ns=" +
+                   std::to_string(snap->packet.last_kernel_to_userspace_receive_latency_ns) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }

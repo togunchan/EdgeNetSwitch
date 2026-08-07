@@ -13,6 +13,13 @@ inline std::uint64_t nowMs()
         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 }
 
+inline std::uint64_t nowRealtimeNs()
+{
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                          std::chrono::system_clock::now().time_since_epoch())
+                                          .count());
+}
+
 inline std::uint64_t nowNs()
 {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
