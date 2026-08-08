@@ -85,7 +85,27 @@ namespace edgenetswitch
                               return;
                           }
                           ingress_packets_.fetch_add(1, std::memory_order_relaxed);
+
+                          if (p->kernel_receive_realtime_ns)
+                          {
+                              last_kernel_receive_realtime_ns_.store(*p->kernel_receive_realtime_ns,
+                                                                     std::memory_order_relaxed);
+                          }
+
+                          if (p->kernel_receive_drop_count)
+                          {
+                              last_kernel_receive_drop_count_.store(*p->kernel_receive_drop_count,
+                                                                    std::memory_order_relaxed);
+                          }
+
+                          if (p->kernel_to_userspace_receive_latency_ns)
+                          {
+                              last_kernel_to_userspace_receive_latency_ns_.store(
+                                  *p->kernel_to_userspace_receive_latency_ns,
+                                  std::memory_order_relaxed);
+                          }
                       });
+
         bus.subscribe(MessageType::IngressIdlePoll, [this](const Message &msg)
                       { udp_drain_completions_.fetch_add(1, std::memory_order_relaxed); });
     }
@@ -122,6 +142,12 @@ namespace edgenetswitch
         const auto max_latency = max_processing_latency_ns_.load(std::memory_order_relaxed);
         const auto latency_samples = latency_samples_.load(std::memory_order_relaxed);
         const auto udp_drain_completions = udp_drain_completions_.load(std::memory_order_relaxed);
+        const auto last_kernel_receive_realtime_ns =
+            last_kernel_receive_realtime_ns_.load(std::memory_order_relaxed);
+        const auto last_kernel_receive_drop_count =
+            last_kernel_receive_drop_count_.load(std::memory_order_relaxed);
+        const auto last_kernel_to_userspace_receive_latency_ns =
+            last_kernel_to_userspace_receive_latency_ns_.load(std::memory_order_relaxed);
 
         std::uint64_t average_latency = 0;
 
@@ -147,7 +173,11 @@ namespace edgenetswitch
                              .max_processing_latency_ns = max_latency,
                              .average_processing_latency_ns = average_latency,
                              .latency_samples = latency_samples,
-                             .udp_drain_completions = udp_drain_completions};
+                             .udp_drain_completions = udp_drain_completions,
+                             .last_kernel_receive_realtime_ns = last_kernel_receive_realtime_ns,
+                             .last_kernel_receive_drop_count = last_kernel_receive_drop_count,
+                             .last_kernel_to_userspace_receive_latency_ns =
+                                 last_kernel_to_userspace_receive_latency_ns};
     }
 
     std::uint64_t PacketStats::rxPackets() const

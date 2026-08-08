@@ -8,6 +8,7 @@
 #include "JsonResponse.hpp"
 #include "edgenetswitch/control/ControlContext.hpp"
 #include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/runtime/RuntimeStatus.hpp"
 #include "edgenetswitch/system/fd/FdState.hpp"
 #include "edgenetswitch/system/fd/FdType.hpp"
@@ -209,6 +210,8 @@ namespace edgenetswitch::control
             return "queue_overflow";
         case PacketDropReason::RateLimited:
             return "rate_limited";
+        case PacketDropReason::DatagramTruncated:
+            return "datagram_truncated";
         default:
             return "unknown";
         }
@@ -255,6 +258,10 @@ namespace edgenetswitch::control
             j["max_processing_latency_ns"] = snap->packet.max_processing_latency_ns;
             j["latency_samples"] = snap->packet.latency_samples;
             j["udp_drain_completions"] = snap->packet.udp_drain_completions;
+            j["last_kernel_receive_realtime_ns"] = snap->packet.last_kernel_receive_realtime_ns;
+            j["last_kernel_receive_drop_count"] = snap->packet.last_kernel_receive_drop_count;
+            j["last_kernel_to_userspace_receive_latency_ns"] =
+                snap->packet.last_kernel_to_userspace_receive_latency_ns;
 
             return makeJsonSuccess(j);
         }
@@ -293,6 +300,12 @@ namespace edgenetswitch::control
             "\n";
         payload +=
             "udp_drain_completions=" + std::to_string(snap->packet.udp_drain_completions) + "\n";
+        payload += "last_kernel_receive_realtime_ns=" +
+                   std::to_string(snap->packet.last_kernel_receive_realtime_ns) + "\n";
+        payload += "last_kernel_receive_drop_count=" +
+                   std::to_string(snap->packet.last_kernel_receive_drop_count) + "\n";
+        payload += "last_kernel_to_userspace_receive_latency_ns=" +
+                   std::to_string(snap->packet.last_kernel_to_userspace_receive_latency_ns) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
@@ -591,6 +604,56 @@ namespace edgenetswitch::control
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
 
+    static ControlResponse handleIngressStats(const ControlContext &ctx, const std::string &arg)
+    {
+        if (!ctx.ingress_manager)
+        {
+            return makeJsonError(error::InternalError, "ingress manager unavailable");
+        }
+
+        if (!arg.empty() && arg != "json")
+        {
+            return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
+        }
+
+        const auto snapshots = ctx.ingress_manager->snapshot();
+
+        if (arg == "json")
+        {
+            nlohmann::json sockets = nlohmann::json::array();
+
+            for (const auto &snapshot : snapshots)
+            {
+                nlohmann::json socket;
+                socket["switch_port"] = snapshot.switch_port;
+                socket["listen_port"] = snapshot.listen_port;
+                socket["fd"] = snapshot.fd;
+                socket["receive_buffer_bytes"] = snapshot.receive_buffer_bytes;
+                sockets.push_back(std::move(socket));
+            }
+
+            nlohmann::json j;
+            j["ingress_sockets"] = std::move(sockets);
+
+            return makeJsonSuccess(j);
+        }
+
+        std::string payload;
+
+        payload += "ingress_socket_count=" + std::to_string(snapshots.size()) + "\n";
+
+        for (const auto &snapshot : snapshots)
+        {
+            payload += "switch_port=" + std::to_string(snapshot.switch_port) +
+                       " listen_port=" + std::to_string(snapshot.listen_port) +
+                       " fd=" + std::to_string(snapshot.fd) +
+                       " receive_buffer_bytes=" + std::to_string(snapshot.receive_buffer_bytes) +
+                       "\n";
+        }
+
+        return ControlResponse{.success = true, .payload = std::move(payload)};
+    }
+
     static const CommandTable &commandTable()
     {
         // Static dispatch table:
@@ -632,7 +695,8 @@ namespace edgenetswitch::control
             {"packet-stats",
              {.name = "packet-stats",
               .description = "packet pipeline statistics",
-              .fields = {"rx_packets", "rx_bytes", "drops"},
+              .fields = {"rx_packets", "rx_bytes", "drops", "last_kernel_receive_realtime_ns",
+                         "last_kernel_receive_drop_count"},
               .handler = handlePacketStats}},
 
             {"show-config",
@@ -655,6 +719,11 @@ namespace edgenetswitch::control
               .description = "file descriptor runtime state",
               .fields = {"fd", "state", "type"},
               .handler = handleFdStatus}},
+            {"ingress-stats",
+             {.name = "ingress-stats",
+              .description = "UDP ingress socket runtime state",
+              .fields = {"switch_port", "listen_port", "fd", "receive_buffer_bytes"},
+              .handler = handleIngressStats}},
             {"transport-stats",
              {.name = "transport-stats",
               .description = "transport layer statistics",

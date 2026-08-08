@@ -1,6 +1,7 @@
 #pragma once
 #include "edgenetswitch/switching/MacAddress.hpp"
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace edgenetswitch
@@ -9,12 +10,13 @@ namespace edgenetswitch
     {
         ParseError,
         ValidationError,
+        DatagramTruncated,
         QueueOverflow,
         SimulatedLoss,
         RateLimited,
         ProcessingError,
         InternalError,
-        Unknown
+        Unknown,
     };
 
     struct PacketDropped
@@ -40,5 +42,8 @@ namespace edgenetswitch
         std::optional<MacAddress> destination_mac;
         std::optional<std::uint32_t> ingress_port;
         std::uint64_t ingress_timestamp_ns{0};
+        std::optional<std::uint64_t> kernel_receive_realtime_ns;
+        std::optional<std::uint32_t> kernel_receive_drop_count;
+        std::optional<std::uint64_t> kernel_to_userspace_receive_latency_ns;
     };
 } // namespace edgenetswitch

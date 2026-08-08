@@ -724,9 +724,19 @@ if(BUILD_TESTING)
     add_executable(ControlTests
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
+        src/network/UdpReceiver.cpp
+        src/packet/PacketParser.cpp
+        src/packet/PacketValidator.cpp
+        src/runtime/IngressManager.cpp
         src/runtime/SnapshotPublisher.cpp
-        src/transport/TransportManager.cpp
+        src/system/epoll/EpollEventLoop.cpp
+        src/system/epoll/EpollManager.cpp
+        src/system/epoll/UdpReadyHandler.cpp
+        src/system/event_source/EventFd.cpp
+        src/system/fd/FileDescriptor.cpp
         src/system/fd/FdRegistry.cpp
+        src/system/wakeup/ShutdownWakeupHandler.cpp
+        src/transport/TransportManager.cpp
     )
 
     target_link_libraries(ControlTests

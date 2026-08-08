@@ -11,10 +11,11 @@
 
 namespace edgenetswitch
 {
-    enum class UdpReadResult
+    enum class UdpReceiveStatus
     {
-        PacketProcessed,
-        NoData,
+        DatagramReceived,
+        NoDataAvailable,
+        Interrupted,
         Closed,
         Error
     };
@@ -31,14 +32,16 @@ namespace edgenetswitch
         void start();
         void stop();
 
-        [[nodiscard]]
-        int fd() const noexcept;
-
         void processReadableEvent();
+
+        [[nodiscard]] int fd() const noexcept;
+        [[nodiscard]] std::uint32_t receiveBufferBytes() const noexcept;
+        [[nodiscard]] std::uint32_t switchPort() const noexcept;
+        [[nodiscard]] std::uint16_t listenPort() const noexcept;
 
     private:
         void run();
-        UdpReadResult handleReadable();
+        UdpReceiveStatus handleReadable();
 
         MessagingBus &bus_;
         std::uint32_t switchPort_;
@@ -49,5 +52,7 @@ namespace edgenetswitch
         std::thread worker_;
         LifecycleIdGenerator &lifecycle_gen_;
         IngressMode ingress_mode_{IngressMode::Blocking};
+        std::uint32_t receive_buffer_bytes_{0};
+        static constexpr std::size_t UDP_RECEIVE_BUFFER_SIZE = 2048;
     };
 } // namespace edgenetswitch

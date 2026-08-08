@@ -22,8 +22,49 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.4` makes daemon shutdown signal-aware by recording typed shutdown reasons, distinguishing `SIGINT` from `SIGTERM`, and keeping signal handling inside a minimal `sig_atomic_t` boundary.
 - `v1.9.5` introduces the transport backend layer, routing forwarding decisions through `TransportManager` and per-port `PortBackend` implementations with runtime transmit counters.
 - `v1.9.6` completes the multi-endpoint UDP ingress architecture with endpoint-based configuration, centralized ingress lifecycle ownership, runtime-wide lifecycle identity, and end-to-end forwarding validation.
+- `v1.9.7` exposes the Linux UDP receive path through `recvmsg()` flags and ancillary metadata, kernel receive timestamps, receive-queue drop and socket-buffer visibility, kernel-to-userspace timing, explicit truncation, MTU/fragmentation investigation, and bounded ingress under pressure.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.7] - Kernel Packet Path Visibility
+
+### Added
+- Added kernel receive timestamp visibility through `SO_TIMESTAMPNS` and `SCM_TIMESTAMPNS`.
+- Added UDP receive-queue drop visibility through `SO_RXQ_OVFL`.
+- Added kernel-to-userspace receive interval tracking.
+- Added optional kernel receive metadata to `Packet` and last-observed values to `PacketStats` and `packet-stats`.
+- Added per-ingress socket receive-buffer observability through `SO_RCVBUF` and `IngressSocketSnapshot`.
+- Added `ingress-stats` inspection for logical switch port, listen port, file descriptor, and receive-buffer value.
+- Added `PacketDropReason::DatagramTruncated` with corresponding runtime drop accounting.
+
+### Changed
+- Migrated UDP receive handling from `recvfrom()` to `recvmsg()` so output message flags and ancillary/control data are available to the runtime.
+- Renamed the receive result model from packet-processing terminology to socket receive-status terminology.
+- Changed `MSG_TRUNC` handling so a truncated UDP receive terminates at the receive layer before packet parsing and application validation.
+- Replaced the unnamed 1024-byte receive array with `UDP_RECEIVE_BUFFER_SIZE = 2048` while preserving `MAX_PAYLOAD_SIZE = 512` as a distinct application policy.
+- Kept receive-buffer state at ingress/socket scope instead of attaching it to individual `Packet` objects.
+- Kept monotonic runtime timing separate from realtime timing used for comparison with the kernel receive timestamp.
+
+### Validated
+- Validated normal UDP reception after the `recvmsg()` migration.
+- Validated `SCM_TIMESTAMPNS` extraction and propagation into runtime packet statistics.
+- Validated positive `SO_RXQ_OVFL` observations under receive pressure.
+- Validated `SO_RCVBUF` visibility for both configured ingress sockets through `ingress-stats`.
+- Validated `MSG_TRUNC` detection and terminal `datagram_truncated` accounting.
+- Validated `MSG_CTRUNC` under deliberately insufficient ancillary-data capacity while the UDP payload continued through the pipeline.
+- Validated that a complete UDP message larger than the application payload policy could be received without `MSG_TRUNC` and then rejected as `payload_too_large`.
+- Validated the MTU-1500 veth/network-namespace path and captured two related IPv4 fragments with `tcpdump`; `recvmsg()` received one complete 1861-byte UDP payload without `MSG_TRUNC`.
+- Validated kernel-to-userspace receive timing under normal traffic and observed a significant increase under burst pressure.
+- Validated activation of the existing 256-datagram per-dispatch receive budget under burst traffic and observed the still-readable level-triggered UDP fd being reported again after the budget boundary.
+- Validated that a second ingress endpoint could be received and processed while the first endpoint remained under load; the marker experiment did not prove immediate processing after a particular `receive budget exhausted` event.
+
+### Engineering Notes
+- `recvmsg()` is the receive boundary that provides UDP payload bytes together with receive flags and ancillary metadata required by the runtime.
+- The milestone makes three distinct conditions explicit: IPv4 fragmentation is an IP/MTU behavior, `MSG_TRUNC` is a userspace UDP receive-buffer capacity condition, and `payload_too_large` is an EdgeNetSwitch application validation policy.
+- `SO_RCVBUF` remains socket-scoped and is exposed through ingress-level runtime state.
+- Kernel receive timestamps and existing runtime monotonic timing remain in separate clock domains.
+- The 256-datagram limit is bounded ingress draining through a per-dispatch receive budget, not network traffic pacing.
+- Under the recorded burst pressure, receive-queue drops became visible and the measured kernel-to-userspace receive interval increased. The pressure and two-endpoint experiments did not reveal a need for a new ingress architecture change.
 
 ## [v1.9.6] - Multi-Endpoint UDP Ingress Architecture
 

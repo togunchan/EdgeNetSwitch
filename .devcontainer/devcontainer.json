@@ -11,5 +11,10 @@
                 "llvm-vs-code-extensions.vscode-clangd"
             ]
         }
-    }
+    },
+
+    "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=SYS_ADMIN"
+    ]
 }

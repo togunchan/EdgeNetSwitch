@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.6-orange)
+![Version](https://img.shields.io/badge/version-v1.9.7-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -33,6 +33,10 @@ The system enables early validation of:
 - Runtime ingress lifecycle management: `IngressManager` owns configured UDP ingress endpoint lifetimes outside `main.cpp`.
 - Multi-endpoint UDP ingress: multiple configured sockets participate in the same switching runtime.
 - Endpoint-based runtime configuration: logical switch ports map to independent listen and peer addresses.
+- Linux UDP receive observability: `recvmsg()` exposes receive flags and ancillary metadata; `SO_TIMESTAMPNS` enables `SCM_TIMESTAMPNS` receive timestamps, while `SO_RXQ_OVFL` exposes receive-queue drop metadata.
+- Receive timing and socket inspection: kernel-to-userspace receive intervals are surfaced through packet statistics, while `SO_RCVBUF` values and endpoint identity are exposed through `IngressSocketSnapshot` and `ingress-stats`.
+- Explicit receive-layer truncation: `MSG_TRUNC` terminates as `DatagramTruncated` before packet parsing and application validation.
+- Bounded ingress draining: each UDP readiness dispatch processes at most 256 datagrams before returning control to the event loop, preventing one readable socket from being drained without a bound.
 - Synchronous event backbone: `MessagingBus` runs subscribers on the publisher's thread; async behavior is limited to explicit bounded handoffs.
 - Explicit overload behavior: packet admission uses a fixed-capacity queue with `QueueOverflow` drops instead of hidden latency or unbounded buffering.
 - Shared lifecycle ID generation: one runtime-owned `LifecycleIdGenerator` assigns globally unique IDs across all ingress endpoints.
@@ -50,11 +54,13 @@ The system enables early validation of:
 
 ## Latest Runtime Evolution
 
-v1.9.6 completes the multi-endpoint UDP ingress architecture. Runtime configuration maps logical switch ports to independent listen and peer endpoints, allowing multiple UDP ingress sockets to participate in the same switching runtime.
+v1.9.6 established multi-endpoint UDP ingress through `IngressManager`, configured listen and peer endpoints, and one runtime-owned lifecycle identity source. v1.9.7 keeps that architecture and makes the Linux UDP receive boundary visible inside the runtime.
 
-`IngressManager` separates ingress lifecycle management from `main.cpp`. Each configured ingress endpoint owns one `UdpReceiver` and one `UdpReadyHandler`, while outbound traffic uses the endpoint's peer address through `UdpPortBackend`.
+`UdpReceiver` now uses `recvmsg()` so receive flags and ancillary/control metadata can be inspected. Kernel receive timestamps, receive-queue drop metadata, per-socket receive-buffer state, and kernel-to-userspace receive timing are exposed through packet and ingress observability.
 
-All receivers share one runtime-owned `LifecycleIdGenerator`, keeping lifecycle IDs globally unique across endpoints. Runtime validation now covers the complete packet path from UDP ingress to transport egress.
+Truncated UDP receives terminate as `DatagramTruncated` before application parsing and validation. This keeps receive-buffer truncation distinct from the `payload_too_large` application policy, while the MTU-1500 investigation separately observed IPv4 fragmentation and complete UDP delivery after reassembly.
+
+Burst-pressure validation exercised the existing 256-datagram per-dispatch receive budget and the level-triggered readiness path. A datagram on a second ingress endpoint was received and processed while the first endpoint remained under load; the experiment did not establish immediate ordering after a particular budget-exhaustion event.
 
 ## Architecture Overview
 
@@ -96,7 +102,7 @@ flowchart LR
     Bus -. runtime events .-> RuntimeObservability
 ```
 
-`IngressManager` owns the lifetime of all configured ingress endpoints, with one `UdpReceiver` and one `UdpReadyHandler` per endpoint. Runtime configuration maps logical switch ports to independent ingress and egress UDP endpoints, while one runtime-owned `LifecycleIdGenerator` keeps lifecycle IDs globally unique across all endpoints. Detailed runtime architecture is intentionally kept under the [docs/](docs/) directory rather than in this README.
+`IngressManager` owns the lifetime of all configured ingress endpoints, with one `UdpReceiver` and one `UdpReadyHandler` per endpoint. Runtime configuration maps logical switch ports to independent ingress and egress UDP endpoints, while one runtime-owned `LifecycleIdGenerator` keeps lifecycle IDs globally unique across all endpoints. `UdpReceiver` also forms the Linux receive-observability boundary through `recvmsg()` flags and ancillary metadata. Detailed runtime architecture is intentionally kept under the [docs/](docs/) directory rather than in this README.
 
 ## Transport Layer
 
@@ -124,6 +130,7 @@ echo "1.2|transport-stats:json" | nc -U /tmp/edgenetswitch.sock
 - [Runtime flow](docs/runtime/flow.md) covers the daemon loop, `MessagingBus`, packet lifecycle, replay hooks, telemetry ticks, and signal-aware shutdown behavior.
 - [Epoll shutdown wakeup flow](docs/system/epoll-shutdown-wakeup-flow.md) explains the `epoll` / `eventfd` wakeup path used to stop the readiness loop.
 - [v1.9.4 signal shutdown investigation](docs/investigations/v1.9.4-signal-runtime-investigation.md) documents the signal-safe boundary, `SIGINT` / `SIGTERM` differentiation, and shutdown latency finding.
+- [v1.9.7 kernel packet path visibility](docs/development/1.9.7-kernel-packet-path-visibility.md) documents `recvmsg()`, ancillary metadata, kernel receive timestamps, receive-queue drops, socket receive-buffer visibility, truncation semantics, MTU/fragmentation experiments, and bounded ingress behavior under pressure.
 - [Daemon and MessagingBus architecture](docs/architecture/daemon.md) describes daemon composition, event dispatch, and control-plane integration.
 
 ## Tech Stack
@@ -142,9 +149,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the architectural milestone history and rel
 
 ## Current Status
 
-v1.9.6 is complete.
+v1.9.7 is complete.
 
-The runtime now supports scalable endpoint-based UDP ingress, globally unique lifecycle tracking, and end-to-end forwarding validation.
+The runtime now combines multi-endpoint UDP ingress, explicit receive-path visibility and kernel receive metadata, receive-layer truncation semantics, bounded ingress draining, deterministic switching, and transport forwarding.
 
 ## Intended Audience
 
@@ -201,6 +208,7 @@ Inspect system state:
 
 ```bash
 echo "1.2|packet-stats:json" | nc -U /tmp/edgenetswitch.sock
+echo "1.2|ingress-stats:json" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|fd-status" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|fd-status:json" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|show-config:json" | nc -U /tmp/edgenetswitch.sock
@@ -215,7 +223,7 @@ echo "1.2|send-packet:topology-demo" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|show:mac-table" | nc -U /tmp/edgenetswitch.sock
 ```
 
-This demonstrates readiness-driven UDP ingress, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, configuration inspection, and packet-path telemetry without hardware dependencies.
+This demonstrates readiness-driven multi-endpoint UDP ingress, receive-path and per-ingress socket visibility, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, configuration inspection, and packet-path telemetry without hardware dependencies.
 
 ## Contributing
 

@@ -3,6 +3,7 @@
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
@@ -17,7 +18,8 @@ namespace edgenetswitch::control
         ControlServer(FileDescriptor &listen_fd, daemon::SnapshotPublisher &publisher,
                       const core::Config &config, MessagingBus &bus,
                       SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
-                      edgenetswitch::transport::TransportManager &transport_manager);
+                      edgenetswitch::transport::TransportManager &transport_manager,
+                      IngressManager &ingress_manager);
 
         [[nodiscard]]
         int fd() const noexcept;
@@ -35,5 +37,6 @@ namespace edgenetswitch::control
         SwitchForwardingEngine &forwarding_engine_;
         FdRegistry &fd_registry_;
         edgenetswitch::transport::TransportManager &transport_manager_;
+        IngressManager &ingress_manager_;
     };
 } // namespace edgenetswitch::control

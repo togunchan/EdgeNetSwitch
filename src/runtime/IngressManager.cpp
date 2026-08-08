@@ -48,4 +48,23 @@ namespace edgenetswitch
         ingressEndpoints_.clear();
     }
 
+    std::vector<IngressSocketSnapshot> IngressManager::snapshot() const
+    {
+        std::vector<IngressSocketSnapshot> snapshots;
+        snapshots.reserve(ingressEndpoints_.size());
+
+        for (const auto &endpoint : ingressEndpoints_)
+        {
+            if (!endpoint.receiver)
+                continue;
+
+            snapshots.push_back(IngressSocketSnapshot{
+                .switch_port = endpoint.receiver->switchPort(),
+                .listen_port = endpoint.receiver->listenPort(),
+                .fd = endpoint.receiver->fd(),
+                .receive_buffer_bytes = endpoint.receiver->receiveBufferBytes()});
+        }
+
+        return snapshots;
+    }
 } // namespace edgenetswitch

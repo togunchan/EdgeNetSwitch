@@ -319,7 +319,7 @@ int main(int argc, char *argv[])
         {
             controlServer = std::make_unique<control::ControlServer>(
                 control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry,
-                transportManager);
+                transportManager, ingressManager);
 
             controlHandler = std::make_unique<ControlReadyHandler>(*controlServer);
 
@@ -403,22 +403,29 @@ int main(int argc, char *argv[])
                           }
                       });
 
-        bus.subscribe(MessageType::PacketRx,
-                      [](const Message &msg)
-                      {
-                          const Packet &p = std::get<Packet>(msg.payload);
+        bus.subscribe(
+            MessageType::PacketRx,
+            [](const Message &msg)
+            {
+                const Packet &p = std::get<Packet>(msg.payload);
 
-                          Logger::info(
-                              "Packet received: "
-                              "id=" +
-                              std::to_string(p.id) + " payload=" + p.payload + " timestamp=" +
-                              formatTimestamp(p.timestamp_ms) + " source_ip=" + p.source_ip +
-                              " source_port=" + std::to_string(p.source_port) + " ingress_port=" +
-                              (p.ingress_port ? std::to_string(*p.ingress_port) : "none") +
-                              " source_mac=" + (p.source_mac ? p.source_mac->toString() : "none") +
-                              " destination_mac=" +
-                              (p.destination_mac ? p.destination_mac->toString() : "none"));
-                      });
+                Logger::info(
+                    "Packet received: "
+                    "id=" +
+                    std::to_string(p.id) + " payload=" + p.payload +
+                    " timestamp=" + formatTimestamp(p.timestamp_ms) + " source_ip=" + p.source_ip +
+                    " source_port=" + std::to_string(p.source_port) +
+                    " ingress_port=" + (p.ingress_port ? std::to_string(*p.ingress_port) : "none") +
+                    " source_mac=" + (p.source_mac ? p.source_mac->toString() : "none") +
+                    " destination_mac=" +
+                    (p.destination_mac ? p.destination_mac->toString() : "none") +
+                    " kernel_receive_realtime_ns=" +
+                    (p.kernel_receive_realtime_ns ? std::to_string(*p.kernel_receive_realtime_ns)
+                                                  : "none") +
+                    " kernel_receive_drop_count=" +
+                    (p.kernel_receive_drop_count ? std::to_string(*p.kernel_receive_drop_count)
+                                                 : "none"));
+            });
 
         bus.subscribe(MessageType::ForwardingDecisionMade,
                       [](const Message &msg)
