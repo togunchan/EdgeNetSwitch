@@ -23,8 +23,32 @@ EdgeNetSwitch evolves in clear architectural phases:
 - `v1.9.5` introduces the transport backend layer, routing forwarding decisions through `TransportManager` and per-port `PortBackend` implementations with runtime transmit counters.
 - `v1.9.6` completes the multi-endpoint UDP ingress architecture with endpoint-based configuration, centralized ingress lifecycle ownership, runtime-wide lifecycle identity, and end-to-end forwarding validation.
 - `v1.9.7` exposes the Linux UDP receive path through `recvmsg()` flags and ancillary metadata, kernel receive timestamps, receive-queue drop and socket-buffer visibility, kernel-to-userspace timing, explicit truncation, MTU/fragmentation investigation, and bounded ingress under pressure.
+- `v1.9.8` explores the Linux packet path below the UDP socket boundary through AF_PACKET, TAP/TUN, Linux bridge, and receive-scaling experiments while keeping the production runtime architecture unchanged.
 
 The system evolves from a deterministic simulation core into a correctness-driven runtime with explicit boundaries for concurrency, observability, and network behavior.
+
+## [v1.9.8] - Linux Packet Path Exploration
+
+### Added
+- Added an isolated AF_PACKET observer for comparing `SOCK_RAW` and `SOCK_DGRAM` packet representations.
+- Added a minimal UDP receiver observer for validating application-payload delivery through a normal UDP socket.
+- Added TAP and TUN experiments for observing Layer-2 Ethernet frames and Layer-3 IP packets through virtual network interfaces.
+- Added a structured development note that preserves experiment setup, failed attempts, recorded output, corrections, and final findings.
+
+### Validated
+- Validated Ethernet-header visibility with AF_PACKET `SOCK_RAW` and the absence of that header with AF_PACKET `SOCK_DGRAM`.
+- Validated that the recorded IPv4 `SOCK_DGRAM` buffer began with `0x45` and was 14 bytes shorter than the corresponding raw Ethernet frame.
+- Validated that a normal UDP socket delivered the 15-byte `hello-af-packet` application payload while the corresponding AF_PACKET observation recorded a 57-byte frame.
+- Validated TAP Layer-2 delivery through observed IPv6 and ARP EtherTypes.
+- Validated TUN Layer-3 delivery through directly observed IPv6 and IPv4 version fields.
+- Validated Linux bridge forwarding and controlled dynamic source-MAC learning through FDB before/after observations.
+- Inspected veth receive queues and recorded disabled RPS/RFS configuration for the observed queue.
+
+### Engineering Notes
+- The experiment tools remain isolated under `tools/experiments/` and do not change the production runtime path.
+- The recorded AF_PACKET observer output directly proves MAC visibility, IPv4 EtherType, UDP protocol identification, and frame length; UDP header fields and payload extraction are supported by the frame-size calculation, `tcpdump`, and normal UDP receiver observations rather than separate observer output.
+- AF_PACKET remains part of the Linux kernel networking stack and is not treated as a kernel-bypass mechanism.
+- The devcontainer/veth environment exposes configuration surfaces but does not validate real multi-queue hardware RSS or multi-core receive performance.
 
 ## [v1.9.7] - Kernel Packet Path Visibility
 

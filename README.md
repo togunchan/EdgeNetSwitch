@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.7-orange)
+![Version](https://img.shields.io/badge/version-v1.9.8-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -37,6 +37,7 @@ The system enables early validation of:
 - Receive timing and socket inspection: kernel-to-userspace receive intervals are surfaced through packet statistics, while `SO_RCVBUF` values and endpoint identity are exposed through `IngressSocketSnapshot` and `ingress-stats`.
 - Explicit receive-layer truncation: `MSG_TRUNC` terminates as `DatagramTruncated` before packet parsing and application validation.
 - Bounded ingress draining: each UDP readiness dispatch processes at most 256 datagrams before returning control to the event loop, preventing one readable socket from being drained without a bound.
+- Linux packet-path experiments: isolated AF_PACKET, UDP socket, TAP, TUN, Linux bridge, and receive-scaling observations document where userspace attaches to the Linux networking stack and which packet representation each boundary exposes.
 - Synchronous event backbone: `MessagingBus` runs subscribers on the publisher's thread; async behavior is limited to explicit bounded handoffs.
 - Explicit overload behavior: packet admission uses a fixed-capacity queue with `QueueOverflow` drops instead of hidden latency or unbounded buffering.
 - Shared lifecycle ID generation: one runtime-owned `LifecycleIdGenerator` assigns globally unique IDs across all ingress endpoints.
@@ -54,13 +55,13 @@ The system enables early validation of:
 
 ## Latest Runtime Evolution
 
-v1.9.6 established multi-endpoint UDP ingress through `IngressManager`, configured listen and peer endpoints, and one runtime-owned lifecycle identity source. v1.9.7 keeps that architecture and makes the Linux UDP receive boundary visible inside the runtime.
+v1.9.7 made the Linux UDP receive boundary visible inside the runtime through `recvmsg()` flags, ancillary metadata, kernel timestamps, receive-queue drops, and explicit truncation semantics. v1.9.8 keeps that runtime architecture unchanged and extends the investigation below the UDP socket boundary.
 
-`UdpReceiver` now uses `recvmsg()` so receive flags and ancillary/control metadata can be inspected. Kernel receive timestamps, receive-queue drop metadata, per-socket receive-buffer state, and kernel-to-userspace receive timing are exposed through packet and ingress observability.
+Standalone experiments compare the same traffic through AF_PACKET `SOCK_RAW`, AF_PACKET `SOCK_DGRAM`, and a normal UDP socket. They show how the userspace view changes from an Ethernet frame, to a network-layer packet, to application payload according to the attachment point.
 
-Truncated UDP receives terminate as `DatagramTruncated` before application parsing and validation. This keeps receive-buffer truncation distinct from the `payload_too_large` application policy, while the MTU-1500 investigation separately observed IPv4 fragmentation and complete UDP delivery after reassembly.
+TAP and TUN experiments validate the corresponding Layer-2 and Layer-3 virtual-interface models, while a Linux bridge experiment records controlled FDB learning. Receive-queue inspection distinguishes hardware RSS from software RPS/RFS configuration and records the limits of the devcontainer/veth environment.
 
-Burst-pressure validation exercised the existing 256-datagram per-dispatch receive budget and the level-triggered readiness path. A datagram on a second ingress endpoint was received and processed while the first endpoint remained under load; the experiment did not establish immediate ordering after a particular budget-exhaustion event.
+These tools remain isolated under `tools/experiments/`; v1.9.8 adds packet-path evidence and architectural understanding without changing the production runtime path.
 
 ## Architecture Overview
 
@@ -131,6 +132,7 @@ echo "1.2|transport-stats:json" | nc -U /tmp/edgenetswitch.sock
 - [Epoll shutdown wakeup flow](docs/system/epoll-shutdown-wakeup-flow.md) explains the `epoll` / `eventfd` wakeup path used to stop the readiness loop.
 - [v1.9.4 signal shutdown investigation](docs/investigations/v1.9.4-signal-runtime-investigation.md) documents the signal-safe boundary, `SIGINT` / `SIGTERM` differentiation, and shutdown latency finding.
 - [v1.9.7 kernel packet path visibility](docs/development/1.9.7-kernel-packet-path-visibility.md) documents `recvmsg()`, ancillary metadata, kernel receive timestamps, receive-queue drops, socket receive-buffer visibility, truncation semantics, MTU/fragmentation experiments, and bounded ingress behavior under pressure.
+- [v1.9.8 Linux packet path exploration](docs/development/v1.9.8-linux-packet-path-exploration.md) compares AF_PACKET, UDP sockets, TAP/TUN, Linux bridge forwarding, and RSS/RPS/RFS configuration through reproducible experiments.
 - [Daemon and MessagingBus architecture](docs/architecture/daemon.md) describes daemon composition, event dispatch, and control-plane integration.
 
 ## Tech Stack
@@ -149,9 +151,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the architectural milestone history and rel
 
 ## Current Status
 
-v1.9.7 is complete.
+v1.9.8 is complete.
 
-The runtime now combines multi-endpoint UDP ingress, explicit receive-path visibility and kernel receive metadata, receive-layer truncation semantics, bounded ingress draining, deterministic switching, and transport forwarding.
+The runtime retains the v1.9.7 receive-path architecture, while v1.9.8 adds reproducible Linux packet-path experiments that clarify Layer-2, Layer-3, transport-socket, virtual-interface, bridge-learning, and receive-scaling boundaries.
 
 ## Intended Audience
 
