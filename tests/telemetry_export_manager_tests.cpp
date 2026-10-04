@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "telemetry/TelemetryExportManager.hpp"
-#include "telemetry/InMemoryTelemetryExporter.hpp"
-#include "telemetry/TelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
+#include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExporter.hpp"
 #include "edgenetswitch/runtime/RuntimeMetrics.hpp"
 
 #include <memory>

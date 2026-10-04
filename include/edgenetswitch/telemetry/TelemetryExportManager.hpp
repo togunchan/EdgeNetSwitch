@@ -7,7 +7,8 @@
 #include <condition_variable>
 #include <atomic>
 
-#include "telemetry/StdoutTelemetryExporter.hpp"
+#include "edgenetswitch/runtime/RuntimeMetrics.hpp"
+#include "edgenetswitch/telemetry/TelemetryExporter.hpp"
 #include <thread>
 
 namespace edgenetswitch::telemetry

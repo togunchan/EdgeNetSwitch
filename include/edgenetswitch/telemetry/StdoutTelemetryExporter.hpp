@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExporter.hpp"
 #include "edgenetswitch/core/Logger.hpp"
 
 namespace edgenetswitch

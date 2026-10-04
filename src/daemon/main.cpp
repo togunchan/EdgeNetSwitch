@@ -30,9 +30,9 @@
 #include "edgenetswitch/transport/UdpPortBackend.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
-#include "telemetry/FileTelemetryExporter.hpp"
-#include "telemetry/InMemoryTelemetryExporter.hpp"
-#include "telemetry/TelemetryExportManager.hpp"
+#include "edgenetswitch/telemetry/FileTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
 
 #include <cstddef>
 #include <fcntl.h>

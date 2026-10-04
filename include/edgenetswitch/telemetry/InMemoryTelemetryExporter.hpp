@@ -1,7 +1,6 @@
 #pragma once
 
-#include "TelemetryExporter.hpp"
-#include "edgenetswitch/core/Logger.hpp"
+#include "edgenetswitch/telemetry/TelemetryExporter.hpp"
 #include <vector>
 #include <mutex>
 
