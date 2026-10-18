@@ -566,6 +566,52 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for runtime lifetime and shutdown contracts
+# -------------------------------------------------------
+
+# Lifecycle probes use POSIX subprocesses so a crash/hang cannot take down Catch2.
+if(BUILD_TESTING AND UNIX)
+
+    add_executable(TelemetryExportManagerTests
+        tests/telemetry_lifecycle_tests.cpp
+    )
+
+    target_link_libraries(TelemetryExportManagerTests
+        PRIVATE
+            Telemetry
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(TelemetryExportManagerTests PRIVATE include)
+    add_test(NAME TelemetryExportManagerTests COMMAND TelemetryExportManagerTests)
+
+    add_executable(PacketRuntimeLifecycleTests
+        tests/packet_runtime_lifecycle_tests.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
+    )
+
+    target_link_libraries(PacketRuntimeLifecycleTests
+        PRIVATE
+            MessagingBus
+            FailureInjection
+            Switching
+            Logger
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(PacketRuntimeLifecycleTests PRIVATE include)
+    add_test(NAME PacketRuntimeLifecycleTests COMMAND PacketRuntimeLifecycleTests)
+
+    # Each child has its own shorter alarm; this also bounds harness failures.
+    set_tests_properties(TelemetryExportManagerTests PacketRuntimeLifecycleTests
+        PROPERTIES TIMEOUT 45
+    )
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for packet forwarding runtime and transport manager integration
 # -------------------------------------------------------
 if(BUILD_TESTING)

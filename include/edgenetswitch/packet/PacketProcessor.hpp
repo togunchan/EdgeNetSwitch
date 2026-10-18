@@ -23,6 +23,7 @@ namespace edgenetswitch
                                  failure::FailureInjector injector = failure::FailureInjector{
                                      failure::FailureConfig{}});
         ~PacketProcessor();
+        void stop();
         void processLoop();
         void processPacket(Packet processedPacket);
         void handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure,

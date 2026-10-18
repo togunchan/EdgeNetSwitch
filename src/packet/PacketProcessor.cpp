@@ -134,6 +134,11 @@ namespace edgenetswitch
 
     PacketProcessor::~PacketProcessor()
     {
+        stop();
+    }
+
+    void PacketProcessor::stop()
+    {
         running_.store(false, std::memory_order_relaxed);
         cv_.notify_all();
         if (worker_.joinable())

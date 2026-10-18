@@ -33,6 +33,7 @@
 #include "edgenetswitch/telemetry/FileTelemetryExporter.hpp"
 #include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
 #include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
+#include "edgenetswitch/telemetry/StdoutTelemetryExporter.hpp"
 
 #include <cstddef>
 #include <fcntl.h>
@@ -514,6 +515,10 @@ int main(int argc, char *argv[])
 
         destroyControlSocket(control_fd);
         ingressManager.shutdown();
+
+        Logger::info("[SHUTDOWN] Stopping packet processor");
+        packetProcessor.stop();
+        Logger::info("[SHUTDOWN] Packet processor stopped");
 
         Logger::info("[SHUTDOWN] Stopping telemetry export manager");
         exportManager.stop();

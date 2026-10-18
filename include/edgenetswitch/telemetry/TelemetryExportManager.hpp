@@ -1,11 +1,11 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-#include <deque>
-#include <mutex>
-#include <condition_variable>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 #include "edgenetswitch/runtime/RuntimeMetrics.hpp"
 #include "edgenetswitch/telemetry/TelemetryExporter.hpp"
@@ -18,8 +18,11 @@ namespace edgenetswitch::telemetry
     class TelemetryExportManager
     {
     public:
-        explicit TelemetryExportManager(std::size_t capacity = 512) noexcept : capacity_(capacity) {}
-        ~TelemetryExportManager() = default;
+        explicit TelemetryExportManager(std::size_t capacity = 512) noexcept : capacity_(capacity)
+        {
+        }
+
+        ~TelemetryExportManager();
 
         // Non-copyable: owns exporters via unique_ptr.
         // Copying would duplicate ownership and break lifetime guarantees.
@@ -51,6 +54,7 @@ namespace edgenetswitch::telemetry
         std::atomic<std::uint64_t> dropped_count_{0};
         std::thread export_thread_;
         std::atomic<bool> running_{false};
+        std::atomic<bool> accepting_{false};
 
         void exportLoop();
     };

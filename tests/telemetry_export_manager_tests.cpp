@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "lifecycle_test_support.hpp"
+
 #include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
 #include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
 #include "edgenetswitch/telemetry/TelemetryExporter.hpp"
@@ -22,11 +24,14 @@ namespace
             ++call_count;
             last_metrics = sample;
             seen.push_back(sample);
+            if (export_gate)
+                export_gate->arriveAndWait();
         }
 
         int call_count = 0;
         RuntimeMetrics last_metrics{0, 0};
         std::vector<RuntimeMetrics> seen;
+        lifecycle_test::Gate *export_gate = nullptr;
     };
 
     class ThrowingExporter final : public TelemetryExporter
@@ -232,60 +237,99 @@ TEST_CASE("TelemetryExportManager boundary cases", "[TelemetryExportManager]")
     }
 }
 
-TEST_CASE("TelemetryExportManager enqueue bounded queue behavior", "[TelemetryExportManager][enqueue]")
+TEST_CASE("TelemetryExportManager enqueue bounded queue behavior",
+          "[TelemetryExportManager][enqueue]")
 {
     constexpr std::size_t capacity = 2;
+    lifecycle_test::Gate gate;
     telemetry::TelemetryExportManager manager{capacity};
+    lifecycle_test::ReleaseGateOnExit release{gate};
+    auto exporter = std::make_unique<CountingExporter>();
+    auto *recorded = exporter.get();
+    exporter->export_gate = &gate;
+    manager.addExporter(std::move(exporter));
+
+    // Admission is closed before start; lifecycle rejection is not a capacity drop.
+    manager.enqueue(RuntimeMetrics{.tick_count = 999});
+    REQUIRE(manager.queueSize() == 0);
+    REQUIRE(manager.droppedCount() == 0);
+
+    manager.start();
+    manager.enqueue(RuntimeMetrics{.tick_count = 0});
+    REQUIRE(gate.waitForArrival());
+    // The first sample is in flight. Block its exporter so queue assertions cannot race drain.
+    REQUIRE(manager.queueSize() == 0);
+    std::vector<std::uint64_t> expected_ticks;
 
     SECTION("enqueue adds samples up to capacity")
     {
-        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(RuntimeMetrics{.tick_count = 1});
         REQUIRE(manager.queueSize() == 1);
         REQUIRE(manager.droppedCount() == 0);
 
-        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(RuntimeMetrics{.tick_count = 2});
         REQUIRE(manager.queueSize() == capacity);
         REQUIRE(manager.droppedCount() == 0);
+        expected_ticks = {0, 1, 2};
     }
 
     SECTION("when capacity is exceeded, the oldest sample is dropped")
     {
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(RuntimeMetrics{.tick_count = 1});
+        manager.enqueue(RuntimeMetrics{.tick_count = 2});
+        manager.enqueue(RuntimeMetrics{.tick_count = 3});
 
         REQUIRE(manager.queueSize() == capacity);
         REQUIRE(manager.droppedCount() == 1);
+        expected_ticks = {0, 2, 3};
     }
 
     SECTION("droppedCount increments correctly")
     {
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
-        manager.enqueue(telemetry::TelemetrySample{});
+        manager.enqueue(RuntimeMetrics{.tick_count = 1});
+        manager.enqueue(RuntimeMetrics{.tick_count = 2});
+        manager.enqueue(RuntimeMetrics{.tick_count = 3});
+        manager.enqueue(RuntimeMetrics{.tick_count = 4});
+        manager.enqueue(RuntimeMetrics{.tick_count = 5});
 
         REQUIRE(manager.droppedCount() == 3);
         REQUIRE(manager.queueSize() == capacity);
+        expected_ticks = {0, 4, 5};
     }
 
     SECTION("queueSize never exceeds capacity")
     {
-        for (int i = 0; i < 64; ++i)
+        for (std::uint64_t i = 1; i <= 64; ++i)
         {
-            manager.enqueue(telemetry::TelemetrySample{});
+            manager.enqueue(RuntimeMetrics{.tick_count = i});
             CHECK(manager.queueSize() <= capacity);
         }
 
         REQUIRE(manager.queueSize() == capacity);
+        REQUIRE(manager.droppedCount() == 64 - capacity);
+        expected_ticks = {0, 63, 64};
     }
 
     SECTION("enqueue does not throw")
     {
-        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
-        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
-        REQUIRE_NOTHROW(manager.enqueue(telemetry::TelemetrySample{}));
+        REQUIRE_NOTHROW(manager.enqueue(RuntimeMetrics{.tick_count = 1}));
+        REQUIRE_NOTHROW(manager.enqueue(RuntimeMetrics{.tick_count = 2}));
+        REQUIRE_NOTHROW(manager.enqueue(RuntimeMetrics{.tick_count = 3}));
         CHECK(noexcept(manager.enqueue(telemetry::TelemetrySample{})));
+        expected_ticks = {0, 2, 3};
     }
+
+    gate.release();
+    manager.stop();
+    REQUIRE(manager.queueSize() == 0);
+    REQUIRE(recorded->seen.size() == expected_ticks.size());
+    for (std::size_t i = 0; i < expected_ticks.size(); ++i)
+        REQUIRE(recorded->seen[i].tick_count == expected_ticks[i]);
+
+    const auto dropped = manager.droppedCount();
+    manager.enqueue(RuntimeMetrics{.tick_count = 999});
+    manager.stop();
+    REQUIRE(manager.queueSize() == 0);
+    REQUIRE(manager.droppedCount() == dropped);
+    REQUIRE(recorded->seen.size() == expected_ticks.size());
 }

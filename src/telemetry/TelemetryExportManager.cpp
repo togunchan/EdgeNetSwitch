@@ -7,6 +7,11 @@
 
 namespace edgenetswitch::telemetry
 {
+    TelemetryExportManager::~TelemetryExportManager()
+    {
+        stop();
+    }
+
     void TelemetryExportManager::addExporter(std::unique_ptr<TelemetryExporter> exporter)
     {
         if (!exporter)
@@ -43,6 +48,11 @@ namespace edgenetswitch::telemetry
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
 
+            if (!accepting_.load(std::memory_order_relaxed))
+            {
+                return;
+            }
+
             if (capacity_ == 0)
             {
                 // this is an edge-case. 0 is used for disabled-queue which means drop everything
@@ -72,16 +82,17 @@ namespace edgenetswitch::telemetry
 
     void TelemetryExportManager::start()
     {
+        accepting_.store(true, std::memory_order_relaxed);
         bool expected = false;
         if (!running_.compare_exchange_strong(expected, true))
             return; // already running
 
-        export_thread_ = std::thread([this]()
-                                     { exportLoop(); });
+        export_thread_ = std::thread([this]() { exportLoop(); });
     }
 
     void TelemetryExportManager::stop()
     {
+        accepting_.store(false, std::memory_order_relaxed);
         bool expected = true;
         if (!running_.compare_exchange_strong(expected, false))
             return; // not running
@@ -101,8 +112,9 @@ namespace edgenetswitch::telemetry
             {
                 std::unique_lock<std::mutex> lock(queue_mutex_);
 
-                queue_cv_.wait(lock, [this]()
-                               { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
+                queue_cv_.wait(
+                    lock, [this]()
+                    { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
 
                 if (queue_.empty() && !running_.load(std::memory_order_relaxed))
                 {
