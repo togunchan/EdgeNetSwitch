@@ -139,7 +139,11 @@ namespace edgenetswitch
 
     void PacketProcessor::stop()
     {
-        running_.store(false, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            running_.store(false, std::memory_order_relaxed);
+        }
+
         cv_.notify_all();
         if (worker_.joinable())
             worker_.join();

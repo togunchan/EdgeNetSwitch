@@ -2,6 +2,7 @@
 #include "edgenetswitch/core/Logger.hpp"
 
 #include <exception>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -92,10 +93,14 @@ namespace edgenetswitch::telemetry
 
     void TelemetryExportManager::stop()
     {
-        accepting_.store(false, std::memory_order_relaxed);
-        bool expected = true;
-        if (!running_.compare_exchange_strong(expected, false))
-            return; // not running
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+
+            accepting_.store(false, std::memory_order_relaxed);
+            bool expected = true;
+            if (!running_.compare_exchange_strong(expected, false))
+                return; // not running
+        }
 
         queue_cv_.notify_all();
 
