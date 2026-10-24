@@ -158,7 +158,10 @@ namespace edgenetswitch
                          [this]
                          {
                              // Continue waiting only while queue is empty AND system is running.
-                             return !queue_.empty() || !running_;
+                             const bool work_available = !queue_.empty();
+                             const bool stop_requested = !work_available && !running_;
+
+                             return work_available || stop_requested;
                          });
 
                 if (!running_ && queue_.empty())

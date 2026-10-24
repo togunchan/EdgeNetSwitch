@@ -112,9 +112,14 @@ namespace edgenetswitch::telemetry
             {
                 std::unique_lock<std::mutex> lock(queue_mutex_);
 
-                queue_cv_.wait(
-                    lock, [this]()
-                    { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
+                queue_cv_.wait(lock,
+                               [this]()
+                               {
+                                   const bool work_available = !queue_.empty();
+                                   const bool stop_requested = !running_;
+
+                                   return work_available || stop_requested;
+                               });
 
                 if (queue_.empty() && !running_.load(std::memory_order_relaxed))
                 {
