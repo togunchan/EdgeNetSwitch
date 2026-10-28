@@ -6,6 +6,7 @@
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/transport/TransmitResult.hpp"
 
+#include <atomic>
 #include <utility>
 
 namespace edgenetswitch
@@ -83,6 +84,7 @@ namespace edgenetswitch
 
                 if (!packet)
                     return;
+
                 const auto now_ms = nowMs();
                 auto failure = injector_.inject(*packet, now_ms);
 
@@ -101,6 +103,12 @@ namespace edgenetswitch
                 bool shouldDrop = false;
                 {
                     std::lock_guard<std::mutex> lock(queue_mutex_);
+
+                    if (!running_.load(std::memory_order_relaxed))
+                    {
+                        return;
+                    }
+
                     if (queue_.size() >= MAX_QUEUE_SIZE)
                     {
                         shouldDrop = true;
