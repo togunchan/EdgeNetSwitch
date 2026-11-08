@@ -4,6 +4,7 @@
 #include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
 
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,18 @@ namespace
         std::mutex mutex;
         std::condition_variable cv;
         std::vector<std::uint64_t> ticks;
+    };
+
+    class ThrowingExporter final : public TelemetryExporter
+    {
+    public:
+        void exportSample(const RuntimeMetrics &) override
+        {
+            ++call_count;
+            throw std::runtime_error("export failure");
+        }
+
+        int call_count = 0;
     };
 
     class SignallingExporter final : public TelemetryExporter
@@ -144,5 +157,52 @@ TEST_CASE("TelemetryExportManager idle worker stop must complete",
             // Public API exposes neither the predicate check nor entry into wait.
             // This bounds empty-queue stop/join only; it cannot force lost wakeup.
             return manager.queueSize() == 0 ? 0 : 1;
+        });
+}
+
+TEST_CASE("TelemetryExportManager worker processes later samples after an exporter throws",
+          "[TelemetryExportManager][RuntimeLifecycle]")
+{
+    requireCleanExit(
+        []
+        {
+            ExportedSamples samples;
+            lifecycle_test::Gate gate;
+            telemetry::TelemetryExportManager manager;
+            lifecycle_test::ReleaseGateOnExit release{gate};
+            auto throwing = std::make_unique<ThrowingExporter>();
+            auto *throwing_ptr = throwing.get();
+            manager.addExporter(std::move(throwing));
+            manager.addExporter(std::make_unique<SignallingExporter>(samples, &gate));
+
+            manager.start();
+            manager.enqueue(RuntimeMetrics{.tick_count = 101});
+            // The healthy exporter is registered after the throwing exporter. Its gate
+            // acknowledges delivery of sample 1 before sample 2 can be admitted.
+            const bool first_received = gate.waitForArrival();
+            bool second_received = false;
+            if (first_received)
+            {
+                manager.enqueue(RuntimeMetrics{.tick_count = 102});
+                gate.release();
+                std::unique_lock<std::mutex> lock(samples.mutex);
+                // The predicate acknowledges actual delivery; the timeout only guards failure.
+                second_received = samples.cv.wait_for(lock, std::chrono::seconds(3),
+                                                      [&] { return samples.ticks.size() == 2; });
+            }
+
+            gate.release();
+            manager.stop();
+            // stop() has joined the worker, so exporter state is safe to inspect here.
+            const bool drained = manager.queueSize() == 0 && manager.droppedCount() == 0 &&
+                                 samples.ticks == std::vector<std::uint64_t>{101, 102};
+            std::fprintf(
+                stderr,
+                "async exceptions: first=%d; second=%d; throws=%d; exported=%zu; queue=%zu\n",
+                first_received, second_received, throwing_ptr->call_count, samples.ticks.size(),
+                manager.queueSize());
+            return first_received && second_received && throwing_ptr->call_count == 2 && drained
+                       ? 0
+                       : 1;
         });
 }

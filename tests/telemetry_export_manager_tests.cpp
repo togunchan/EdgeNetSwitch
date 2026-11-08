@@ -140,12 +140,6 @@ TEST_CASE("TelemetryExportManager accepts exporters added after samples", "[Tele
 
 TEST_CASE("TelemetryExportManager continues after an exporter throws", "[TelemetryExportManager]")
 {
-    if constexpr (noexcept(std::declval<telemetry::TelemetryExportManager &>().exportSample(
-                      std::declval<const RuntimeMetrics &>())))
-    {
-        SKIP("exportSample is noexcept; throwing would terminate the process. Remove noexcept or catch internally to enable this test.");
-    }
-
     telemetry::TelemetryExportManager manager;
 
     auto first = std::make_unique<CountingExporter>();
@@ -153,6 +147,7 @@ TEST_CASE("TelemetryExportManager continues after an exporter throws", "[Telemet
     auto second = std::make_unique<CountingExporter>();
 
     auto *first_ptr = first.get();
+    auto *throwing_ptr = throwing.get();
     auto *second_ptr = second.get();
 
     manager.addExporter(std::move(first));
@@ -163,10 +158,12 @@ TEST_CASE("TelemetryExportManager continues after an exporter throws", "[Telemet
 
     REQUIRE_NOTHROW(manager.exportSample(metrics));
     REQUIRE(first_ptr->call_count == 1);
+    REQUIRE(throwing_ptr->call_count == 1);
     REQUIRE(second_ptr->call_count == 1);
 
     REQUIRE_NOTHROW(manager.exportSample(metrics));
     REQUIRE(first_ptr->call_count == 2);
+    REQUIRE(throwing_ptr->call_count == 2);
     REQUIRE(second_ptr->call_count == 2);
 }
 
