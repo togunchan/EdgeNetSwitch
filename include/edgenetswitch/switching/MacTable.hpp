@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -24,12 +25,13 @@ namespace edgenetswitch
         std::vector<MacTableEntry> snapshot() const;
 
         [[nodiscard]]
-        std::size_t size() const noexcept;
+        std::size_t size() const;
 
         [[nodiscard]]
         std::size_t capacity() const noexcept;
 
     private:
+        mutable std::mutex mutex_;
         std::size_t capacity_{0};
         std::map<MacAddress, MacTableEntry> entries_;
     };
