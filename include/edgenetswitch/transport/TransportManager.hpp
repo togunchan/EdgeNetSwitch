@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <mutex>
 
 namespace edgenetswitch::transport
 {
@@ -24,10 +25,11 @@ namespace edgenetswitch::transport
     public:
         void registerBackend(std::uint32_t port_id, std::unique_ptr<PortBackend> backend);
         TransmitResult transmit(std::uint32_t port_id, const Packet &packet);
-        const TransportCounters &counters() const noexcept;
+        const TransportCounters counters() const noexcept;
         void resetCounters();
 
     private:
+        mutable std::mutex counters_mutex_;
         std::unordered_map<std::uint32_t, std::unique_ptr<PortBackend>> backends_;
         TransportCounters counters_;
     };

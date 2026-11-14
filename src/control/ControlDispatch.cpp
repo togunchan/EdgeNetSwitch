@@ -576,7 +576,7 @@ namespace edgenetswitch::control
             return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
         }
 
-        const auto &counters = ctx.transport_manager->counters();
+        const auto counters = ctx.transport_manager->counters();
 
         if (arg == "json")
         {

@@ -1,6 +1,7 @@
 
 #include "edgenetswitch/transport/TransportManager.hpp"
 #include "edgenetswitch/transport/TransmitResult.hpp"
+#include <mutex>
 #include <utility>
 
 namespace edgenetswitch::transport
@@ -17,49 +18,57 @@ namespace edgenetswitch::transport
 
         if (it == backends_.end())
         {
-            ++counters_.backend_unavailable;
-            ++counters_.tx_failed;
+            {
+                std::lock_guard<std::mutex> lock(counters_mutex_);
+                ++counters_.backend_unavailable;
+                ++counters_.tx_failed;
+            }
+
             return {.status = TransmitStatus::BackendUnavailable, .port_id = port_id};
         }
 
         auto result = it->second->transmit(packet);
 
-        switch (result.status)
         {
-        case TransmitStatus::Success:
-            ++counters_.tx_packets;
-            counters_.tx_bytes += result.bytes_transmitted;
-            break;
-        case TransmitStatus::PortDown:
-            ++counters_.tx_failed;
-            ++counters_.port_down;
-            break;
-        case TransmitStatus::BackendUnavailable:
-            ++counters_.tx_failed;
-            ++counters_.backend_unavailable;
-            break;
-        case TransmitStatus::InvalidPacket:
-            ++counters_.tx_failed;
-            ++counters_.invalid_packet;
-            break;
-        case TransmitStatus::SendFailed:
-            ++counters_.tx_failed;
-            break;
-        default:
-            ++counters_.tx_failed;
-            break;
+            std::lock_guard<std::mutex> lock(counters_mutex_);
+            switch (result.status)
+            {
+            case TransmitStatus::Success:
+                ++counters_.tx_packets;
+                counters_.tx_bytes += result.bytes_transmitted;
+                break;
+            case TransmitStatus::PortDown:
+                ++counters_.tx_failed;
+                ++counters_.port_down;
+                break;
+            case TransmitStatus::BackendUnavailable:
+                ++counters_.tx_failed;
+                ++counters_.backend_unavailable;
+                break;
+            case TransmitStatus::InvalidPacket:
+                ++counters_.tx_failed;
+                ++counters_.invalid_packet;
+                break;
+            case TransmitStatus::SendFailed:
+                ++counters_.tx_failed;
+                break;
+            default:
+                ++counters_.tx_failed;
+                break;
+            }
         }
-
         return result;
     }
 
-    const TransportCounters &TransportManager::counters() const noexcept
+    const TransportCounters TransportManager::counters() const noexcept
     {
+        std::lock_guard<std::mutex> lock(counters_mutex_);
         return counters_;
     }
 
     void TransportManager::resetCounters()
     {
+        std::lock_guard<std::mutex> lock(counters_mutex_);
         counters_ = {};
     }
 } // namespace edgenetswitch::transport
