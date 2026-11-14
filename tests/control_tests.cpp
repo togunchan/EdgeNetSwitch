@@ -4,12 +4,16 @@
 #include "../src/runtime/SnapshotPublisher.hpp"
 
 #include "edgenetswitch/control/ControlContext.hpp"
-#include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
+#include "edgenetswitch/control/ControlServer.hpp"
+#include "edgenetswitch/core/Config.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <vector>
 
 namespace
@@ -357,4 +361,57 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(j["data"]["rate"].contains("alpha"));
         CHECK(j["data"]["rate"].contains("window_ms"));
     }
+}
+
+TEST_CASE("Control server rejects packet injection after closing admission", "[control][server]")
+{
+    using namespace edgenetswitch;
+
+    FileDescriptor listener(::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+    REQUIRE(listener.valid());
+
+    // Binding only the address family lets Linux assign a unique abstract socket name.
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    auto *socket_address = reinterpret_cast<sockaddr *>(&address);
+    REQUIRE(::bind(listener.get(), socket_address, sizeof(address.sun_family)) == 0);
+    REQUIRE(::listen(listener.get(), 1) == 0);
+    socklen_t address_length = sizeof(address);
+    REQUIRE(::getsockname(listener.get(), socket_address, &address_length) == 0);
+
+    daemon::SnapshotPublisher publisher;
+    const auto config = makeDeterministicConfig();
+    int packet_rx_count = 0;
+    MessagingBus bus;
+    bus.subscribe(MessageType::PacketRx, [&](const Message &) { ++packet_rx_count; });
+    MacTable mac_table{1};
+    InterfaceRegistry interfaces;
+    SwitchForwardingEngine forwarding_engine(mac_table, interfaces);
+    FdRegistry fd_registry;
+    EpollManager epoll_manager(&fd_registry);
+    EpollEventLoop epoll_loop(epoll_manager, &fd_registry);
+    LifecycleIdGenerator lifecycle_generator;
+    IngressManager ingress_manager(bus, lifecycle_generator, epoll_manager, epoll_loop,
+                                   fd_registry);
+    transport::TransportManager transport_manager;
+    control::ControlServer server(listener, publisher, config, bus, forwarding_engine, fd_registry,
+                                  transport_manager, ingress_manager);
+
+    const auto submit_command = [&]
+    {
+        FileDescriptor client(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+        REQUIRE(client.valid());
+        REQUIRE(::connect(client.get(), socket_address, address_length) == 0);
+        constexpr std::string_view request = "1.2|send-packet:broadcast\n";
+        REQUIRE(::send(client.get(), request.data(), request.size(), 0) ==
+                static_cast<ssize_t>(request.size()));
+        server.processReadableEvent();
+    };
+
+    submit_command();
+    REQUIRE(packet_rx_count == 1);
+
+    server.closeAdmission();
+    submit_command();
+    CHECK(packet_rx_count == 1);
 }

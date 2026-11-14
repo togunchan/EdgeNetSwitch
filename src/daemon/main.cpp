@@ -501,6 +501,11 @@ int main(int argc, char *argv[])
             debugReaderThread.join();
         }
 #endif
+        Logger::info("[SHUTDOWN] Closing control admission");
+        if (controlServer)
+        {
+            controlServer->closeAdmission();
+        }
 
         Logger::info("[SHUTDOWN] Stopping epoll event loop");
         epollLoop.stop();

@@ -9,6 +9,7 @@
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
 #include "runtime/SnapshotPublisher.hpp"
+#include <atomic>
 
 namespace edgenetswitch::control
 {
@@ -25,6 +26,7 @@ namespace edgenetswitch::control
         int fd() const noexcept;
 
         void processReadableEvent();
+        void closeAdmission() noexcept;
 
     private:
         void handleClient(int client_fd);
@@ -38,5 +40,6 @@ namespace edgenetswitch::control
         FdRegistry &fd_registry_;
         edgenetswitch::transport::TransportManager &transport_manager_;
         IngressManager &ingress_manager_;
+        std::atomic<bool> accepting_{true};
     };
 } // namespace edgenetswitch::control

@@ -763,13 +763,14 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # -------------------------------------------------------
-# Unit Tests for Control dispatch
+# Unit Tests for control dispatch and server admission
 # -------------------------------------------------------
 if(BUILD_TESTING)
 
     add_executable(ControlTests
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
+        src/control/ControlServer.cpp
         src/network/UdpReceiver.cpp
         src/packet/PacketParser.cpp
         src/packet/PacketValidator.cpp

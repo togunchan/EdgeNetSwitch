@@ -39,6 +39,9 @@ namespace edgenetswitch::control
     {
         while (true)
         {
+            if (!accepting_.load(std::memory_order_acquire))
+                return;
+
             int client_fd =
                 ::accept4(listen_fd_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
 
@@ -83,6 +86,12 @@ namespace edgenetswitch::control
 
             Logger::info("Control command received: " + req.command);
 
+            if (!accepting_.load(std::memory_order_acquire))
+            {
+                ::close(client_fd);
+                return;
+            }
+
             control::ControlContext ctx{.publisher = &publisher_,
                                         .config = &config_,
                                         .bus = &bus_,
@@ -103,5 +112,10 @@ namespace edgenetswitch::control
             resp.payload.empty() ? control::encodeResponse(resp) : resp.payload;
 
         ::write(client_fd, wire.c_str(), wire.size());
+    }
+
+    void ControlServer::closeAdmission() noexcept
+    {
+        accepting_.store(false, std::memory_order_release);
     }
 } // namespace edgenetswitch::control
