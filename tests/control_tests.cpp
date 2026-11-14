@@ -7,6 +7,9 @@
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/control/ControlServer.hpp"
 #include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -14,6 +17,7 @@
 #include <string_view>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <variant>
 #include <vector>
 
 namespace
@@ -363,6 +367,38 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
     }
 }
 
+TEST_CASE("Repeated broadcast injection assigns distinct lifecycle IDs", "[control][dispatch]")
+{
+    using namespace edgenetswitch;
+
+    std::vector<Packet> packets;
+    MessagingBus bus;
+    bus.subscribe(MessageType::PacketRx, [&](const Message &message)
+                  { packets.push_back(std::get<Packet>(message.payload)); });
+    LifecycleIdGenerator lifecycle_generator;
+    const ControlContext ctx{
+        .bus = &bus,
+        .lifecycle_generator = &lifecycle_generator,
+    };
+
+    const auto first = dispatch("send-packet:broadcast", ctx);
+    REQUIRE(first.success);
+    REQUIRE(packets.size() == 1);
+
+    const auto second = dispatch("send-packet:broadcast", ctx);
+    REQUIRE(second.success);
+    REQUIRE(packets.size() == 2);
+
+    CHECK(packets[0].id == 999);
+    CHECK(packets[1].id == 999);
+    CHECK(packets[0].lifecycle_id != packets[1].lifecycle_id);
+
+    const auto first_json = nlohmann::json::parse(first.payload);
+    const auto second_json = nlohmann::json::parse(second.payload);
+    CHECK(first_json.at("data").at("lifecycle_id") == packets[0].lifecycle_id);
+    CHECK(second_json.at("data").at("lifecycle_id") == packets[1].lifecycle_id);
+}
+
 TEST_CASE("Control server rejects packet injection after closing admission", "[control][server]")
 {
     using namespace edgenetswitch;
@@ -395,7 +431,7 @@ TEST_CASE("Control server rejects packet injection after closing admission", "[c
                                    fd_registry);
     transport::TransportManager transport_manager;
     control::ControlServer server(listener, publisher, config, bus, forwarding_engine, fd_registry,
-                                  transport_manager, ingress_manager);
+                                  transport_manager, ingress_manager, lifecycle_generator);
 
     const auto submit_command = [&]
     {

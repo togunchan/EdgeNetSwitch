@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
         {
             controlServer = std::make_unique<control::ControlServer>(
                 control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry,
-                transportManager, ingressManager);
+                transportManager, ingressManager, lifecycleGenerator);
 
             controlHandler = std::make_unique<ControlReadyHandler>(*controlServer);
 

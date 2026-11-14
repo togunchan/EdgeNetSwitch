@@ -22,10 +22,12 @@ namespace edgenetswitch::control
                                  const core::Config &config, MessagingBus &bus,
                                  SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
                                  edgenetswitch::transport::TransportManager &transport_manager,
-                                 IngressManager &ingress_manager)
+                                 IngressManager &ingress_manager,
+                                 LifecycleIdGenerator &lifecycle_generator)
         : listen_fd_(listen_fd), publisher_(publisher), config_(config), bus_(bus),
           forwarding_engine_(forwarding_engine), fd_registry_(fd_registry),
-          transport_manager_(transport_manager), ingress_manager_(ingress_manager)
+          transport_manager_(transport_manager), ingress_manager_(ingress_manager),
+          lifecycle_generator_(lifecycle_generator)
 
     {
     }
@@ -98,7 +100,8 @@ namespace edgenetswitch::control
                                         .forwarding_engine = &forwarding_engine_,
                                         .fd_registry = &fd_registry_,
                                         .transport_manager = &transport_manager_,
-                                        .ingress_manager = &ingress_manager_};
+                                        .ingress_manager = &ingress_manager_,
+                                        .lifecycle_generator = &lifecycle_generator_};
 
             const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
             writeControlResponse(client_fd, resp);

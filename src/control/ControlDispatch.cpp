@@ -364,8 +364,9 @@ namespace edgenetswitch::control
     }
 
     static void publishSyntheticPacket(MessagingBus &bus, std::uint64_t id,
-                                       const std::string &payload, const char *source_mac_str,
-                                       const char *destination_mac_str, std::uint32_t ingress_port)
+                                       std::uint64_t lifecycle_id, const std::string &payload,
+                                       const char *source_mac_str, const char *destination_mac_str,
+                                       std::uint32_t ingress_port)
     {
         auto source_mac = MacAddress::fromString(source_mac_str);
         auto destination_mac = MacAddress::fromString(destination_mac_str);
@@ -377,7 +378,7 @@ namespace edgenetswitch::control
 
         Packet packet{};
         packet.id = id;
-        packet.lifecycle_id = id;
+        packet.lifecycle_id = lifecycle_id;
         packet.timestamp_ms = nowMs();
         packet.payload = payload;
         packet.payload_size = static_cast<std::uint32_t>(packet.payload.size());
@@ -397,6 +398,11 @@ namespace edgenetswitch::control
 
     static ControlResponse handleSendPacket(const ControlContext &ctx, const std::string &arg)
     {
+        if (!ctx.lifecycle_generator)
+        {
+            return makeJsonError(error::InternalError, "lifecycle generator unavailable");
+        }
+
         if (!ctx.bus)
         {
             return makeJsonError(error::InternalError, "messaging bus unavailable");
@@ -404,23 +410,24 @@ namespace edgenetswitch::control
 
         if (arg == "broadcast")
         {
-            publishSyntheticPacket(*ctx.bus, 999, "control-plane-broadcast", "00:11:22:33:44:55",
-                                   "ff:ff:ff:ff:ff:ff", 2);
+            const auto lifecycle_id = ctx.lifecycle_generator->next();
 
+            publishSyntheticPacket(*ctx.bus, 999, lifecycle_id, "control-plane-broadcast",
+                                   "00:11:22:33:44:55", "ff:ff:ff:ff:ff:ff", 2);
             nlohmann::json j;
             j["result"] = "packet injected";
             j["mode"] = arg;
-            j["lifecycle_id"] = 999;
+            j["lifecycle_id"] = lifecycle_id;
 
             return makeJsonSuccess(j);
         }
         else if (arg == "learn")
         {
-            publishSyntheticPacket(*ctx.bus, 1000, "mac-learning", "AA:AA:AA:AA:AA:AA",
-                                   "FF:FF:FF:FF:FF:FF", 1);
+            publishSyntheticPacket(*ctx.bus, 1000, ctx.lifecycle_generator->next(), "mac-learning",
+                                   "AA:AA:AA:AA:AA:AA", "FF:FF:FF:FF:FF:FF", 1);
 
-            publishSyntheticPacket(*ctx.bus, 1001, "known-unicast", "BB:BB:BB:BB:BB:BB",
-                                   "AA:AA:AA:AA:AA:AA", 2);
+            publishSyntheticPacket(*ctx.bus, 1001, ctx.lifecycle_generator->next(), "known-unicast",
+                                   "BB:BB:BB:BB:BB:BB", "AA:AA:AA:AA:AA:AA", 2);
 
             nlohmann::json j;
             j["result"] = "mac learning sequence injected";
@@ -429,20 +436,21 @@ namespace edgenetswitch::control
         }
         else if (arg == "topology-demo")
         {
-            publishSyntheticPacket(*ctx.bus, 2000, "broadcast-discovery", "AA:AA:AA:AA:AA:AA",
-                                   "FF:FF:FF:FF:FF:FF", 1);
+            publishSyntheticPacket(*ctx.bus, 2000, ctx.lifecycle_generator->next(),
+                                   "broadcast-discovery", "AA:AA:AA:AA:AA:AA", "FF:FF:FF:FF:FF:FF",
+                                   1);
 
-            publishSyntheticPacket(*ctx.bus, 2001, "known-unicast-bb", "BB:BB:BB:BB:BB:BB",
-                                   "AA:AA:AA:AA:AA:AA", 2);
+            publishSyntheticPacket(*ctx.bus, 2001, ctx.lifecycle_generator->next(),
+                                   "known-unicast-bb", "BB:BB:BB:BB:BB:BB", "AA:AA:AA:AA:AA:AA", 2);
 
-            publishSyntheticPacket(*ctx.bus, 2002, "known-unicast-cc", "CC:CC:CC:CC:CC:CC",
-                                   "AA:AA:AA:AA:AA:AA", 3);
+            publishSyntheticPacket(*ctx.bus, 2002, ctx.lifecycle_generator->next(),
+                                   "known-unicast-cc", "CC:CC:CC:CC:CC:CC", "AA:AA:AA:AA:AA:AA", 3);
 
-            publishSyntheticPacket(*ctx.bus, 2003, "unknown-unicast", "DD:DD:DD:DD:DD:DD",
-                                   "EE:EE:EE:EE:EE:EE", 4);
+            publishSyntheticPacket(*ctx.bus, 2003, ctx.lifecycle_generator->next(),
+                                   "unknown-unicast", "DD:DD:DD:DD:DD:DD", "EE:EE:EE:EE:EE:EE", 4);
 
-            publishSyntheticPacket(*ctx.bus, 2004, "known-unicast-ee", "EE:EE:EE:EE:EE:EE",
-                                   "CC:CC:CC:CC:CC:CC", 5);
+            publishSyntheticPacket(*ctx.bus, 2004, ctx.lifecycle_generator->next(),
+                                   "known-unicast-ee", "EE:EE:EE:EE:EE:EE", "CC:CC:CC:CC:CC:CC", 5);
 
             nlohmann::json j;
             j["result"] = "topology demo injected";

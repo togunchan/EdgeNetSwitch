@@ -1,6 +1,7 @@
 #pragma once
 
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
@@ -33,6 +34,7 @@ namespace edgenetswitch::control
         FdRegistry *fd_registry{nullptr};
         edgenetswitch::transport::TransportManager *transport_manager{};
         const IngressManager *ingress_manager{nullptr};
+        LifecycleIdGenerator *lifecycle_generator{nullptr};
     };
 
 } // namespace edgenetswitch::control
