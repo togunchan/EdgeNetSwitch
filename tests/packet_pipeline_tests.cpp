@@ -7,6 +7,7 @@
 #include <atomic>
 #include <thread>
 #include <unistd.h>
+#include <variant>
 
 using namespace edgenetswitch;
 
@@ -170,6 +171,87 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
     REQUIRE(metrics.pending_terminal_events == 0);
     REQUIRE(metrics.rx_packets == 0);
     REQUIRE(metrics.rx_bytes == 0);
+}
+
+TEST_CASE("Unrelated terminal drops leave open packet lifecycles pending", "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+    constexpr std::uint64_t active_id = 1;
+    constexpr std::uint64_t terminal_only_id = 2;
+    constexpr auto reason = PacketDropReason::ValidationError;
+
+    const auto publish_drop = [&](std::uint64_t lifecycle_id)
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = reason,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = lifecycle_id}});
+    };
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = active_id, .timestamp_ms = now_ms}});
+    REQUIRE(stats.snapshotAt(now_ms).pending_terminal_events == 1);
+
+    publish_drop(terminal_only_id);
+    const auto before_duplicate = stats.snapshotAt(now_ms);
+    CHECK(before_duplicate.ingress_packets == 1);
+    CHECK(before_duplicate.terminal_events == 1);
+    CHECK(before_duplicate.drops_by_reason.at(reason) == 1);
+    CHECK(before_duplicate.duplicate_events == 0);
+    CHECK(before_duplicate.pending_terminal_events == 1);
+
+    publish_drop(terminal_only_id);
+    const auto after_duplicate = stats.snapshotAt(now_ms);
+    CHECK(after_duplicate.duplicate_events == before_duplicate.duplicate_events + 1);
+    CHECK(after_duplicate.ingress_packets == before_duplicate.ingress_packets);
+    CHECK(after_duplicate.processed_packets == before_duplicate.processed_packets);
+    CHECK(after_duplicate.terminal_events == before_duplicate.terminal_events);
+    CHECK(after_duplicate.drops_by_reason == before_duplicate.drops_by_reason);
+    CHECK(after_duplicate.pending_terminal_events == before_duplicate.pending_terminal_events);
+    CHECK(after_duplicate.processing_gap == before_duplicate.processing_gap);
+
+    publish_drop(active_id);
+    const auto completed = stats.snapshotAt(now_ms);
+    CHECK(completed.pending_terminal_events == 0);
+    CHECK(completed.terminal_events == 2);
+    CHECK(completed.drops_by_reason.at(reason) == 2);
+    CHECK(completed.duplicate_events == 1);
+    CHECK(completed.processing_gap == 1);
+}
+
+TEST_CASE("PacketRx leaves no pending lifecycle when an earlier subscriber drops it",
+          "[PacketPipeline]")
+{
+    MessagingBus bus;
+    // Match the daemon's callback order when the processor reports queue overflow inline.
+    bus.subscribe(
+        MessageType::PacketRx,
+        [&](const Message &message)
+        {
+            const auto &packet = std::get<Packet>(message.payload);
+            bus.publish(Message{.type = MessageType::PacketDropped,
+                                .timestamp_ms = message.timestamp_ms,
+                                .payload = PacketDropped{.reason = PacketDropReason::QueueOverflow,
+                                                         .timestamp_ms = message.timestamp_ms,
+                                                         .lifecycle_id = packet.lifecycle_id}});
+        });
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = 1, .timestamp_ms = now_ms}});
+
+    const auto metrics = stats.snapshotAt(now_ms);
+    CHECK(metrics.ingress_packets == 1);
+    CHECK(metrics.terminal_events == 1);
+    CHECK(metrics.drops_by_reason.at(PacketDropReason::QueueOverflow) == 1);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
 }
 
 TEST_CASE("Packet lifecycle reaches terminal state under normal processing", "[PacketPipeline]")

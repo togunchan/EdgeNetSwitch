@@ -60,6 +60,7 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> processed_packets_{0};
         std::atomic<std::uint64_t> terminal_events_{0};
         std::atomic<std::uint64_t> duplicate_events_{0};
+        std::unordered_set<uint64_t> active_lifecycles_;
         std::unordered_set<uint64_t> completed_lifecycles_;
         mutable std::mutex lifecycle_mutex_;
         std::atomic_uint64_t total_processing_latency_ns_{0};
