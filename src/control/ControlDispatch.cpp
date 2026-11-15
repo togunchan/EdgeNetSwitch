@@ -212,6 +212,12 @@ namespace edgenetswitch::control
             return "rate_limited";
         case PacketDropReason::DatagramTruncated:
             return "datagram_truncated";
+        case PacketDropReason::SimulatedLoss:
+            return "simulated_loss";
+        case PacketDropReason::ProcessingError:
+            return "processing_error";
+        case PacketDropReason::InternalError:
+            return "internal_error";
         default:
             return "unknown";
         }

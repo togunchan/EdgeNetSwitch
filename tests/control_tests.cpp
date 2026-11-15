@@ -43,6 +43,10 @@ namespace
         s.packet.rx_bytes = 202;
         s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ParseError] = 3;
         s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ValidationError] = 4;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::SimulatedLoss] = 5;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ProcessingError] = 6;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::InternalError] = 7;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::Unknown] = 8;
         s.packet.rx_packets_per_sec = 55;
         s.packet.rx_bytes_per_sec = 66;
         s.packet.rx_packets_per_sec_raw = 77;
@@ -225,8 +229,13 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         CHECK(j["data"].contains("rx_packets"));
         CHECK(j["data"].contains("rx_bytes"));
         REQUIRE(j["data"].contains("drops"));
-        REQUIRE(j["data"]["drops"].contains("parse_error"));
-        REQUIRE(j["data"]["drops"].contains("validation_error"));
+        const auto &drops = j["data"]["drops"];
+        REQUIRE(drops.contains("parse_error"));
+        REQUIRE(drops.contains("validation_error"));
+        CHECK(drops.value("simulated_loss", 0) == 5);
+        CHECK(drops.value("processing_error", 0) == 6);
+        CHECK(drops.value("internal_error", 0) == 7);
+        CHECK(drops.value("unknown", 0) == 8);
         CHECK(j["data"].contains("rx_packets_per_sec"));
         CHECK(j["data"].contains("rx_bytes_per_sec"));
         CHECK(j["data"].contains("rx_packets_per_sec_raw"));
@@ -267,7 +276,9 @@ TEST_CASE("Text mode exposes key=value output", "[control][text]")
         {"metrics", {"uptime_ms=", "tick_count="}},
         {"version", {"version=", "protocol=", "build="}},
         {"help:version", {"command=", "description="}},
-        {"packet-stats", {"rx_packets=", "rx_bytes=", "drops_total="}},
+        {"packet-stats",
+         {"rx_packets=", "rx_bytes=", "\ndrops_simulated_loss=5\n", "\ndrops_processing_error=6\n",
+          "\ndrops_internal_error=7\n", "\ndrops_unknown=8\n", "\ndrops_total=33\n"}},
         {"show-config",
          {"log.level=", "daemon.tick_ms=", "udp.endpoint.switch_port=", "rate.window_ms="}},
     };
