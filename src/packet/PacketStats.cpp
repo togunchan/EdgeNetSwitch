@@ -9,7 +9,7 @@ namespace edgenetswitch
     void PacketStats::onTerminal(uint64_t lifecycle_id)
     {
         std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-        if (!completed_lifecycles_.insert(lifecycle_id).second)
+        if (!recordCompletedLifecycleLocked(lifecycle_id))
         {
             duplicate_events_.fetch_add(1, std::memory_order_relaxed);
             return;
@@ -28,7 +28,7 @@ namespace edgenetswitch
                 const Packet &p = std::get<Packet>(msg.payload);
 
                 std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-                if (!completed_lifecycles_.insert(p.lifecycle_id).second)
+                if (!recordCompletedLifecycleLocked(p.lifecycle_id))
                 {
                     duplicate_events_.fetch_add(1, std::memory_order_relaxed);
                     return;
@@ -67,7 +67,7 @@ namespace edgenetswitch
                           const auto drop = std::get<PacketDropped>(msg.payload);
 
                           std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-                          if (!completed_lifecycles_.insert(drop.lifecycle_id).second)
+                          if (!recordCompletedLifecycleLocked(drop.lifecycle_id))
                           {
                               duplicate_events_.fetch_add(1, std::memory_order_relaxed);
                               return;
@@ -94,7 +94,7 @@ namespace edgenetswitch
 
                               ingress_packets_.fetch_add(1, std::memory_order_relaxed);
 
-                              if (!completed_lifecycles_.contains(p->lifecycle_id))
+                              if (!isLifecycleCompletedLocked(p->lifecycle_id))
                               {
                                   active_lifecycles_.insert(p->lifecycle_id);
                               }
@@ -216,5 +216,77 @@ namespace edgenetswitch
         }
 
         return total;
+    }
+
+    bool PacketStats::isLifecycleCompletedLocked(std::uint64_t lifecycle_id) const
+    {
+        auto it = completed_lifecycle_ranges_.upper_bound(lifecycle_id);
+
+        if (it == completed_lifecycle_ranges_.begin())
+        {
+            return false;
+        }
+
+        --it;
+
+        return lifecycle_id <= it->second;
+    }
+
+    bool PacketStats::recordCompletedLifecycleLocked(std::uint64_t lifecycle_id)
+    {
+        auto next = completed_lifecycle_ranges_.lower_bound(lifecycle_id);
+
+        // The lifecycle ID already starts an existing completed range.
+        if (next != completed_lifecycle_ranges_.end() && next->first == lifecycle_id)
+        {
+            return false;
+        }
+
+        auto previous = completed_lifecycle_ranges_.end();
+
+        if (next != completed_lifecycle_ranges_.begin())
+        {
+            previous = std::prev(next);
+
+            // The lifecycle ID is already contained in the previous range.
+            if (lifecycle_id <= previous->second)
+            {
+                return false;
+            }
+        }
+
+        const bool merge_left = previous != completed_lifecycle_ranges_.end() &&
+                                previous->second != UINT64_MAX &&
+                                previous->second + 1 == lifecycle_id;
+
+        const bool merge_right = next != completed_lifecycle_ranges_.end() &&
+                                 lifecycle_id != UINT64_MAX && lifecycle_id + 1 == next->first;
+
+        if (merge_left && merge_right)
+        {
+            // Bridge two adjacent ranges: [1,5] + 6 + [7,10] -> [1,10].
+            previous->second = next->second;
+            completed_lifecycle_ranges_.erase(next);
+        }
+        else if (merge_left)
+        {
+            // Extend the previous range: [1,5] + 6 -> [1,6].
+            previous->second = lifecycle_id;
+        }
+        else if (merge_right)
+        {
+            // Extend the next range backwards: 4 + [5,10] -> [4,10].
+            const auto range_end = next->second;
+
+            completed_lifecycle_ranges_.erase(next);
+            completed_lifecycle_ranges_.emplace(lifecycle_id, range_end);
+        }
+        else
+        {
+            // Create a new standalone completed range.
+            completed_lifecycle_ranges_.emplace(lifecycle_id, lifecycle_id);
+        }
+
+        return true;
     }
 } // namespace edgenetswitch

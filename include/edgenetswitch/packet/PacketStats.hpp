@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -53,6 +54,9 @@ namespace edgenetswitch
         void onTerminal(uint64_t lifecycle_id);
 
     private:
+        bool isLifecycleCompletedLocked(std::uint64_t lifecycle_id) const;
+        bool recordCompletedLifecycleLocked(std::uint64_t lifecycle_id);
+
         std::atomic<std::uint64_t> rx_packets_{0};
         std::atomic<std::uint64_t> rx_bytes_{0};
         std::unordered_map<PacketDropReason, std::atomic<uint64_t>> drop_counters_;
@@ -61,7 +65,7 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> terminal_events_{0};
         std::atomic<std::uint64_t> duplicate_events_{0};
         std::unordered_set<uint64_t> active_lifecycles_;
-        std::unordered_set<uint64_t> completed_lifecycles_;
+        std::map<std::uint64_t, std::uint64_t> completed_lifecycle_ranges_;
         mutable std::mutex lifecycle_mutex_;
         std::atomic_uint64_t total_processing_latency_ns_{0};
         std::atomic_uint64_t max_processing_latency_ns_{0};

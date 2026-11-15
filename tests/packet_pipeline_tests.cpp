@@ -5,6 +5,7 @@
 #include "edgenetswitch/packet/PacketStats.hpp"
 
 #include <atomic>
+#include <initializer_list>
 #include <thread>
 #include <unistd.h>
 #include <variant>
@@ -250,6 +251,85 @@ TEST_CASE("PacketRx leaves no pending lifecycle when an earlier subscriber drops
     CHECK(metrics.ingress_packets == 1);
     CHECK(metrics.terminal_events == 1);
     CHECK(metrics.drops_by_reason.at(PacketDropReason::QueueOverflow) == 1);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
+}
+
+TEST_CASE("Completed lifecycles remain duplicates after bridging or extending a range",
+          "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    const auto publish_drop = [&](std::uint64_t lifecycle_id)
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = lifecycle_id}});
+    };
+
+    const auto check_duplicates = [&](std::initializer_list<std::uint64_t> lifecycle_ids)
+    {
+        std::uint64_t terminal_count = 0;
+        for (const auto id : lifecycle_ids)
+        {
+            CAPTURE(id);
+            publish_drop(id);
+            ++terminal_count;
+            const auto metrics = stats.snapshotAt(now_ms);
+            CHECK(metrics.terminal_events == terminal_count);
+            CHECK(metrics.duplicate_events == 0);
+        }
+
+        std::uint64_t duplicate_count = 0;
+        for (const auto id : lifecycle_ids)
+        {
+            CAPTURE(id);
+            publish_drop(id);
+            ++duplicate_count;
+            const auto metrics = stats.snapshotAt(now_ms);
+            CHECK(metrics.terminal_events == terminal_count);
+            CHECK(metrics.duplicate_events == duplicate_count);
+            CHECK(dropsTotal(metrics) == terminal_count);
+        }
+    };
+
+    SECTION("Bridge two ranges")
+    {
+        check_duplicates({1, 3, 2});
+    }
+
+    SECTION("Extend the range on the left")
+    {
+        check_duplicates({10, 11});
+    }
+
+    SECTION("Extend the range on the right")
+    {
+        check_duplicates({21, 20});
+    }
+}
+
+TEST_CASE("PacketRx inside a completed lifecycle range leaves no pending event", "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    stats.onTerminal(30);
+    stats.onTerminal(32);
+    stats.onTerminal(31);
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = 31, .timestamp_ms = now_ms}});
+
+    const auto metrics = stats.snapshotAt(now_ms);
+    CHECK(metrics.ingress_packets == 1);
+    CHECK(metrics.terminal_events == 3);
     CHECK(metrics.duplicate_events == 0);
     CHECK(metrics.pending_terminal_events == 0);
 }
