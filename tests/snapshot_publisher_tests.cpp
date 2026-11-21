@@ -1,11 +1,21 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "lifecycle_test_support.hpp"
+
+#include "../src/runtime/RuntimeStatusBuilder.hpp"
 #include "../src/runtime/SnapshotPublisher.hpp"
 
+#include "edgenetswitch/packet/PacketProcessor.hpp"
+#include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/runtime/HealthMonitor.hpp"
+#include "edgenetswitch/telemetry/Telemetry.hpp"
+
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <thread>
+#include <variant>
 
 namespace
 {
@@ -16,6 +26,60 @@ namespace
         std::uint64_t last_seen_version{0};
     };
 } // namespace
+
+TEST_CASE("RuntimeStatusBuilder copies packet queue metrics before and after drain",
+          "[SnapshotPublisher][RuntimeStatusBuilder]")
+{
+    using namespace edgenetswitch;
+
+    lifecycle_test::Gate worker_gate;
+    MessagingBus bus;
+    core::Config cfg{};
+    Telemetry telemetry(bus, cfg);
+    HealthMonitor health_monitor(bus, 1000);
+    PacketStats stats(bus);
+    PacketProcessor processor(bus);
+    lifecycle_test::ReleaseGateOnExit release{worker_gate};
+    RuntimeStatusBuilder builder;
+
+    constexpr std::size_t queued_packets = 3;
+    REQUIRE(processor.queueCapacity() > queued_packets);
+
+    const auto check_snapshot = [&](std::size_t expected_depth, std::size_t expected_peak)
+    {
+        REQUIRE(processor.queueDepth() == expected_depth);
+        REQUIRE(processor.queueHighWaterMark() == expected_peak);
+
+        const auto status = builder.build(telemetry, health_monitor, stats, processor,
+                                          RuntimeState::Running, 1000);
+        CHECK(status.packet.queue_depth == processor.queueDepth());
+        CHECK(status.packet.queue_capacity == processor.queueCapacity());
+        CHECK(status.packet.queue_high_water_mark == processor.queueHighWaterMark());
+    };
+
+    check_snapshot(0, 0);
+
+    // Keep the worker outside the queue while the main thread admits a known backlog.
+    bus.subscribe(MessageType::PacketProcessed,
+                  [&](const Message &) { worker_gate.arriveAndWait(); });
+    Message message{
+        .type = MessageType::PacketRx,
+        .timestamp_ms = 1,
+        .payload = Packet{.lifecycle_id = 1, .payload = "queue visibility", .timestamp_ms = 1}};
+    bus.publish(message);
+    REQUIRE(worker_gate.waitForArrival());
+
+    for (std::size_t i = 0; i < queued_packets; ++i)
+    {
+        ++std::get<Packet>(message.payload).lifecycle_id;
+        bus.publish(message);
+    }
+    check_snapshot(queued_packets, queued_packets);
+
+    worker_gate.release();
+    processor.stop();
+    check_snapshot(0, queued_packets);
+}
 
 TEST_CASE("SnapshotPublisher publishes and loads snapshots correctly", "[SnapshotPublisher]")
 {

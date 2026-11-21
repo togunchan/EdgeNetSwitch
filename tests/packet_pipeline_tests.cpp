@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "lifecycle_test_support.hpp"
+
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
@@ -86,6 +88,64 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
     REQUIRE(processedCount.load(std::memory_order_relaxed) == 1);
     REQUIRE(metrics.rx_packets == 1);
     REQUIRE(metrics.rx_bytes == packet.payload.size());
+}
+
+TEST_CASE("PacketProcessor reports queue depth, capacity, and high-water mark", "[PacketPipeline]")
+{
+    lifecycle_test::Gate worker_gate;
+    bool peak_preserved_during_drain = true;
+    PacketPipelineFixture fixture;
+    lifecycle_test::ReleaseGateOnExit release{worker_gate};
+    auto &processor = fixture.processor;
+    const auto capacity = processor.queueCapacity();
+
+    REQUIRE(capacity > 1);
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == 0);
+
+    // Hold the worker after its first dequeue so subsequent admissions can fill the queue.
+    fixture.bus.subscribe(MessageType::PacketProcessed,
+                          [&, capacity](const Message &)
+                          {
+                              worker_gate.arriveAndWait();
+                              peak_preserved_during_drain &=
+                                  fixture.processor.queueHighWaterMark() == capacity;
+                          });
+
+    Message message{
+        .type = MessageType::PacketRx,
+        .timestamp_ms = 1,
+        .payload = Packet{.lifecycle_id = 1, .payload = "queue visibility", .timestamp_ms = 1}};
+    auto &packet = std::get<Packet>(message.payload);
+    fixture.bus.publish(message);
+    REQUIRE(worker_gate.waitForArrival());
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == 1);
+
+    for (std::size_t depth = 1; depth <= capacity; ++depth)
+    {
+        ++packet.lifecycle_id;
+        fixture.bus.publish(message);
+        REQUIRE(processor.queueDepth() == depth);
+        CHECK(processor.queueHighWaterMark() == depth);
+    }
+
+    const auto peak = processor.queueDepth();
+    ++packet.lifecycle_id;
+    fixture.bus.publish(message);
+    CHECK(processor.queueDepth() == capacity);
+    CHECK(processor.queueHighWaterMark() == peak);
+
+    worker_gate.release();
+    processor.stop();
+
+    const auto metrics = fixture.stats.snapshotAt(1);
+    REQUIRE(metrics.drops_by_reason.contains(PacketDropReason::QueueOverflow));
+    CHECK(metrics.drops_by_reason.at(PacketDropReason::QueueOverflow) == 1);
+    CHECK(metrics.processed_packets == capacity + 1);
+    CHECK(peak_preserved_during_drain);
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == peak);
 }
 
 TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[PacketPipeline]")

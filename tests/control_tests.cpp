@@ -51,6 +51,9 @@ namespace
         s.packet.rx_bytes_per_sec = 66;
         s.packet.rx_packets_per_sec_raw = 77;
         s.packet.rx_bytes_per_sec_raw = 88;
+        s.packet.queue_depth = 17;
+        s.packet.queue_capacity = 1024;
+        s.packet.queue_high_water_mark = 63;
         return s;
     }
 
@@ -240,6 +243,16 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         CHECK(j["data"].contains("rx_bytes_per_sec"));
         CHECK(j["data"].contains("rx_packets_per_sec_raw"));
         CHECK(j["data"].contains("rx_bytes_per_sec_raw"));
+        const auto &data = j["data"];
+        REQUIRE(data.contains("queue_depth"));
+        REQUIRE(data.contains("queue_capacity"));
+        REQUIRE(data.contains("queue_high_water_mark"));
+        CHECK(data.at("queue_depth").is_number_unsigned());
+        CHECK(data.at("queue_capacity").is_number_unsigned());
+        CHECK(data.at("queue_high_water_mark").is_number_unsigned());
+        CHECK(data.at("queue_depth") == 17);
+        CHECK(data.at("queue_capacity") == 1024);
+        CHECK(data.at("queue_high_water_mark") == 63);
     }
 
     SECTION("show-config json")
@@ -278,7 +291,8 @@ TEST_CASE("Text mode exposes key=value output", "[control][text]")
         {"help:version", {"command=", "description="}},
         {"packet-stats",
          {"rx_packets=", "rx_bytes=", "\ndrops_simulated_loss=5\n", "\ndrops_processing_error=6\n",
-          "\ndrops_internal_error=7\n", "\ndrops_unknown=8\n", "\ndrops_total=33\n"}},
+          "\ndrops_internal_error=7\n", "\ndrops_unknown=8\n", "\ndrops_total=33\n",
+          "\nqueue_depth=17\n", "\nqueue_capacity=1024\n", "\nqueue_high_water_mark=63\n"}},
         {"show-config",
          {"log.level=", "daemon.tick_ms=", "udp.endpoint.switch_port=", "rate.window_ms="}},
     };

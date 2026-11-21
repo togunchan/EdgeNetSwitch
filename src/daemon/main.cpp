@@ -311,7 +311,7 @@ int main(int argc, char *argv[])
 
         {
             auto status =
-                statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+                statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
 
             g_snapshotPublisher.publish(status);
         }
@@ -489,7 +489,7 @@ int main(int argc, char *argv[])
             healthMonitor.onTick();
 
             auto status =
-                statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+                statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
 
             g_snapshotPublisher.publish(status);
             std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
@@ -533,7 +533,7 @@ int main(int argc, char *argv[])
         Logger::warn("Stop requested. Shutting down...");
         Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
         const auto status =
-            statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+            statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
         Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
                      " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
                      " tick_count=" + std::to_string(status.metrics.tick_count));

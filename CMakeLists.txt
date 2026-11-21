@@ -497,11 +497,20 @@ if(BUILD_TESTING)
 
     add_executable(SnapshotPublisherTests
         tests/snapshot_publisher_tests.cpp
+        src/runtime/RuntimeStatusBuilder.cpp
         src/runtime/SnapshotPublisher.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
     )
 
     target_link_libraries(SnapshotPublisherTests
         PRIVATE
+            Telemetry
+            HealthMonitor
+            MessagingBus
+            FailureInjection
+            Switching
             Catch2::Catch2WithMain
     )
 

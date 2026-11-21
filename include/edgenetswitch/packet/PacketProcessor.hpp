@@ -28,10 +28,13 @@ namespace edgenetswitch
         void processPacket(Packet processedPacket);
         void handleInjectedFailure(const Packet &pkt, const failure::FailureResult &failure,
                                    std::uint64_t now_ms);
+        std::size_t queueDepth() const;
+        std::size_t queueCapacity() const noexcept;
+        std::size_t queueHighWaterMark() const;
 
     private:
         std::deque<Packet> queue_;
-        std::mutex queue_mutex_;
+        mutable std::mutex queue_mutex_;
         std::condition_variable cv_;
         std::thread worker_;
         std::atomic<bool> running_{true};
@@ -41,5 +44,6 @@ namespace edgenetswitch
         failure::FailureInjector injector_;
         SwitchForwardingEngine *forwarding_engine_{nullptr};
         transport::TransportManager *transport_manager_{nullptr};
+        std::size_t queue_high_water_mark_{0};
     };
 } // namespace edgenetswitch

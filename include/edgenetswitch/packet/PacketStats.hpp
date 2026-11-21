@@ -34,7 +34,10 @@ namespace edgenetswitch
         std::uint64_t udp_drain_completions{0};
         std::uint64_t last_kernel_receive_realtime_ns{0};
         std::uint32_t last_kernel_receive_drop_count{0};
-        std::uint64_t last_kernel_to_userspace_receive_latency_ns{0};
+        std::uint64_t last_kernel_to_userspace_receive_latency_ns;
+        std::uint64_t queue_depth{0};
+        std::uint64_t queue_capacity{0};
+        std::uint64_t queue_high_water_mark{0};
     };
 
     class PacketStats

@@ -116,6 +116,11 @@ namespace edgenetswitch
                     else
                     {
                         queue_.push_back(*packet);
+
+                        if (queue_.size() > queue_high_water_mark_)
+                        {
+                            queue_high_water_mark_ = queue_.size();
+                        }
                     }
                 }
 
@@ -293,6 +298,23 @@ namespace edgenetswitch
                                         .lifecycle_id = pkt.lifecycle_id};
 
         bus_.publish(std::move(dropMsg));
+    }
+
+    std::size_t PacketProcessor::queueDepth() const
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        return queue_.size();
+    }
+
+    std::size_t PacketProcessor::queueCapacity() const noexcept
+    {
+        return MAX_QUEUE_SIZE;
+    }
+
+    std::size_t PacketProcessor::queueHighWaterMark() const
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        return queue_high_water_mark_;
     }
 
 } // namespace edgenetswitch
