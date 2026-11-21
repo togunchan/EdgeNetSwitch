@@ -82,7 +82,7 @@ namespace edgenetswitch
             {
                 const Packet *packet = std::get_if<Packet>(&msg.payload);
 
-                if (!packet)
+                if (!packet || !running_.load(std::memory_order_relaxed))
                     return;
 
                 const auto now_ms = nowMs();
