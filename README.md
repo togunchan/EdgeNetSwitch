@@ -2,7 +2,7 @@
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-v1.9.8-orange)
+![Version](https://img.shields.io/badge/version-v2.0-orange)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 > Debugging embedded network systems after hardware integration is too late.  
@@ -29,39 +29,25 @@ The system enables early validation of:
 
 ## Key Engineering Highlights
 
-- Deterministic runtime ownership: the main loop owns telemetry, health, and snapshots, while `epoll` owns readiness-driven I/O dispatch.
-- Runtime ingress lifecycle management: `IngressManager` owns configured UDP ingress endpoint lifetimes outside `main.cpp`.
-- Multi-endpoint UDP ingress: multiple configured sockets participate in the same switching runtime.
-- Endpoint-based runtime configuration: logical switch ports map to independent listen and peer addresses.
-- Linux UDP receive observability: `recvmsg()` exposes receive flags and ancillary metadata; `SO_TIMESTAMPNS` enables `SCM_TIMESTAMPNS` receive timestamps, while `SO_RXQ_OVFL` exposes receive-queue drop metadata.
-- Receive timing and socket inspection: kernel-to-userspace receive intervals are surfaced through packet statistics, while `SO_RCVBUF` values and endpoint identity are exposed through `IngressSocketSnapshot` and `ingress-stats`.
-- Explicit receive-layer truncation: `MSG_TRUNC` terminates as `DatagramTruncated` before packet parsing and application validation.
-- Bounded ingress draining: each UDP readiness dispatch processes at most 256 datagrams before returning control to the event loop, preventing one readable socket from being drained without a bound.
-- Linux packet-path experiments: isolated AF_PACKET, UDP socket, TAP, TUN, Linux bridge, and receive-scaling observations document where userspace attaches to the Linux networking stack and which packet representation each boundary exposes.
-- Synchronous event backbone: `MessagingBus` runs subscribers on the publisher's thread; async behavior is limited to explicit bounded handoffs.
-- Explicit overload behavior: packet admission uses a fixed-capacity queue with `QueueOverflow` drops instead of hidden latency or unbounded buffering.
-- Shared lifecycle ID generation: one runtime-owned `LifecycleIdGenerator` assigns globally unique IDs across all ingress endpoints.
-- Replay validation: recorded ingress traffic can be replayed and compared against expected runtime outcomes.
-- Deterministic failure injection: reproducible faults exercise loss, delay, rejection, and replay-validation paths without relying on randomness.
-- Switching simulation: packets with MAC and ingress-port metadata produce deterministic learning, drop, flood, or known-unicast decisions.
-- Forwarding observability: `ForwardingDecisionMade` exposes switching results before the packet reaches its terminal processed event.
-- End-to-end forwarding pipeline: validated packets flow through switching and `TransportManager` to registered `PortBackend` implementations.
-- Control-plane capabilities: UNIX-socket commands expose snapshots, config, health, packet stats, descriptor state, MAC-table state, and synthetic packet injection.
-- Linux readiness model: UDP ingress, the control listener, and shutdown wakeups dispatch through `epoll` handlers.
-- Eventfd shutdown wakeup: `eventfd` interrupts `epoll_wait()` so shutdown does not depend on timeout expiry or unrelated I/O.
-- Signal-aware shutdown: `SIGINT` and `SIGTERM` are recorded as distinct typed shutdown reasons and surfaced in runtime logs.
-- Runtime observability: telemetry export runs off the runtime path, while packet stats expose rates, latency, drops, drain counts, and lifecycle state.
-- Runtime validation suite: Catch2 coverage exercises flooding, learning, MAC aging, multi-endpoint ingress, global lifecycle identity, and complete forwarding behavior.
+- C++20 runtime ownership: RAII descriptors, explicit worker shutdown, admission closure, deterministic drain/join, and a lost-wakeup-safe condition-variable protocol.
+- Multi-endpoint UDP ingress: `IngressManager` owns endpoints mapping logical ports to independent listen/peer addresses; readiness dispatch drains at most 256 datagrams.
+- Linux receive observability: `recvmsg()`, `SO_TIMESTAMPNS` / `SCM_TIMESTAMPNS`, `SO_RXQ_OVFL`, receive timing, and socket-buffer snapshots; `MSG_TRUNC` becomes `DatagramTruncated` before parsing.
+- Explicit concurrency boundaries: synchronous `MessagingBus` callbacks and bounded packet admission with classified `QueueOverflow` drops.
+- Bounded asynchronous telemetry: drop-oldest eviction, `dropped_count`, per-exporter exception isolation, and deterministic shutdown drain.
+- Lifecycle identity and accounting: shared `LifecycleIdGenerator` for UDP/control traffic, separate `Packet::id` and `lifecycle_id`, active lifecycle tracking, duplicate terminal detection, and completed-range compression.
+- Replay and deterministic failure injection: recorded outcomes, loss, delay, and rejection scenarios can be reproduced and checked.
+- Learning-switch forwarding: MAC learning, aging, flooding, and known-unicast decisions feed `TransportManager` and `PortBackend`; `ForwardingDecisionMade` precedes terminal processing.
+- Operational visibility: packet queue depth/capacity/high-water mark, rates, latency, distinct drop reasons, forwarding counters, requested-port egress attribution, and heartbeat silence.
+- Operational health: `Healthy`, `Degraded`, `Overloaded`, and `ShuttingDown` describe operating condition separately from lifecycle `RuntimeState`.
+- Graceful degradation: regressions verify continued processing after localized packet/transport failures, exporter-worker survival, and rejected post-stop processor admission.
+- Linux readiness and shutdown: `epoll` handles UDP/control I/O, `eventfd` wakes shutdown, stop-before-run is safe, and `SIGINT` / `SIGTERM` retain distinct shutdown reasons.
+- UNIX-domain control plane: synchronized snapshots, config, health, packet/descriptor/MAC-table state, and deterministic packet injection.
 
-## Latest Runtime Evolution
+Completed ranges compress the normal monotonic lifecycle model; arbitrary indefinitely sparse IDs can still grow retained ranges. Teardown quiesces ingress/control producers before `PacketProcessor::stop()`, which is not a global callback synchronization barrier.
 
-v1.9.7 made the Linux UDP receive boundary visible inside the runtime through `recvmsg()` flags, ancillary metadata, kernel timestamps, receive-queue drops, and explicit truncation semantics. v1.9.8 keeps that runtime architecture unchanged and extends the investigation below the UDP socket boundary.
+## v2.0 — Runtime Maturity
 
-Standalone experiments compare the same traffic through AF_PACKET `SOCK_RAW`, AF_PACKET `SOCK_DGRAM`, and a normal UDP socket. They show how the userspace view changes from an Ethernet frame, to a network-layer packet, to application payload according to the attachment point.
-
-TAP and TUN experiments validate the corresponding Layer-2 and Layer-3 virtual-interface models, while a Linux bridge experiment records controlled FDB learning. Receive-queue inspection distinguishes hardware RSS from software RPS/RFS configuration and records the limits of the devcontainer/veth environment.
-
-These tools remain isolated under `tools/experiments/`; v1.9.8 adds packet-path evidence and architectural understanding without changing the production runtime path.
+v2.0 matures the existing packet architecture through deterministic lifecycle/shutdown, safe concurrency boundaries, bounded asynchronous telemetry, correct lifecycle accounting, operational visibility/health, and graceful-degradation and recovery validation. See the [development record](docs/development/v2.0-runtime-maturity.md) for engineering reasoning and the [release document](docs/releases/v2.0-runtime-maturity.md) for final contracts and boundaries.
 
 ## Architecture Overview
 
@@ -103,23 +89,17 @@ flowchart LR
     Bus -. runtime events .-> RuntimeObservability
 ```
 
-`IngressManager` owns the lifetime of all configured ingress endpoints, with one `UdpReceiver` and one `UdpReadyHandler` per endpoint. Runtime configuration maps logical switch ports to independent ingress and egress UDP endpoints, while one runtime-owned `LifecycleIdGenerator` keeps lifecycle IDs globally unique across all endpoints. `UdpReceiver` also forms the Linux receive-observability boundary through `recvmsg()` flags and ancillary metadata. Detailed runtime architecture is intentionally kept under the [docs/](docs/) directory rather than in this README.
+`IngressManager` owns one `UdpReceiver` / `UdpReadyHandler` pair per configured endpoint. Runtime Observability combines `PacketStats`, `HealthMonitor`, and asynchronous `TelemetryExportManager` exports. Detailed component and lifecycle contracts are in [docs/](docs/).
 
 ## Transport Layer
 
-The transport layer is the boundary between switching decisions and outbound packet I/O.
+The transport layer connects switching decisions to outbound packet I/O.
 
-`PortBackend` is the per-port transmit interface. Backends accept a processed packet and return a `TransmitResult` that identifies success, unavailable backend, down port, invalid packet, or native send failure.
+`PortBackend` returns a `TransmitResult` with status `Success`, `BackendUnavailable`, `PortDown`, `InvalidPacket`, or `SendFailed`. `VirtualPortBackend` simulates transmission; `UdpPortBackend` sends payload bytes to configured IPv4 peers using an RAII `FileDescriptor`, optionally tracked in `FdRegistry`.
 
-`VirtualPortBackend` implements the same interface for simulated transmit paths. It preserves the transport contract without creating a socket.
+`TransportManager` owns registered backends and is authoritative for requested egress-port attribution, including when a backend returns an incorrect port ID. Transport counters expose successful packets/bytes, failed attempts, unavailable backends, down ports, and invalid packets through synchronized value snapshots.
 
-`UdpPortBackend` implements the socket-backed transport path. It creates a UDP socket, owns it through the existing RAII `FileDescriptor` wrapper, records it in `FdRegistry` when a registry is provided, and sends packet payload bytes to the configured IPv4 endpoint.
-
-`TransportManager` owns registered backends by port ID, dispatches forwarding egress ports to the matching backend, and keeps transport policy out of the switching engine. It converts backend outcomes into runtime counters, allowing successful transmissions, failures, unavailable backends, and other transport events to be observed through the control plane.
-
-`TransportCounters` expose transmit visibility for successful packets, transmitted bytes, failed sends, unavailable backends, down ports, and invalid packets.
-
-The control plane exposes these counters through:
+Transport failure does not automatically generate `PacketDropped`; the lifecycle can still complete with `PacketProcessed`. Likewise, `ForwardingAction::Drop != PacketDropped`: forwarding decisions and terminal lifecycle outcomes are counted separately.
 
 ```bash
 echo "1.2|transport-stats" | nc -U /tmp/edgenetswitch.sock
@@ -128,6 +108,8 @@ echo "1.2|transport-stats:json" | nc -U /tmp/edgenetswitch.sock
 
 ## Focused Architecture Documents
 
+- [v2.0 development record](docs/development/v2.0-runtime-maturity.md) records lifecycle, telemetry, concurrency, accounting, observability, and graceful-degradation reasoning and validation history.
+- [v2.0 release document](docs/releases/v2.0-runtime-maturity.md) defines final runtime contracts, validated capabilities, known boundaries, and the next milestone.
 - [Runtime flow](docs/runtime/flow.md) covers the daemon loop, `MessagingBus`, packet lifecycle, replay hooks, telemetry ticks, and signal-aware shutdown behavior.
 - [Epoll shutdown wakeup flow](docs/system/epoll-shutdown-wakeup-flow.md) explains the `epoll` / `eventfd` wakeup path used to stop the readiness loop.
 - [v1.9.4 signal shutdown investigation](docs/investigations/v1.9.4-signal-runtime-investigation.md) documents the signal-safe boundary, `SIGINT` / `SIGTERM` differentiation, and shutdown latency finding.
@@ -151,9 +133,9 @@ See [CHANGELOG.md](CHANGELOG.md) for the architectural milestone history and rel
 
 ## Current Status
 
-v1.9.8 is complete.
+v2.0 Runtime Maturity is complete. Lifecycle/shutdown, telemetry, and operational visibility/health work is complete, with regression coverage for graceful degradation and failure recovery. Final regression and sanitizer validation passed.
 
-The runtime retains the v1.9.7 receive-path architecture, while v1.9.8 adds reproducible Linux packet-path experiments that clarify Layer-2, Layer-3, transport-socket, virtual-interface, bridge-learning, and receive-scaling boundaries.
+Next: **v2.5 — ARM64 / QEMU integration**, including systemd and boot-time daemon validation. Later: **v3.0 — Yocto integration and complete embedded Linux simulation**.
 
 ## Intended Audience
 
@@ -192,7 +174,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The test suite covers lifecycle accounting, bounded async packet processing, deterministic failure injection, replay equivalence, switching decisions, forwarding-event ordering, terminal observable ordering, descriptor ownership, and Linux `epoll` / `eventfd` behavior. Runtime tests validate unknown unicast flooding, learning-switch behavior, MAC table aging, multi-endpoint UDP ingress, global lifecycle ID generation, and the end-to-end forwarding pipeline.
+The full Linux CTest suite passed **22/22** targets. The [final validation record](docs/development/v2.0-runtime-maturity.md#final-v20-validation) also records **22/22** passing under AddressSanitizer + UndefinedBehaviorSanitizer, with the final run using `ASAN_OPTIONS=detect_leaks=1` and `UBSAN_OPTIONS=print_stacktrace=1`.
+
+Coverage includes lifecycle/drain, telemetry recovery, control admission, accounting, queue pressure, health, replay, MAC learning/aging, multi-endpoint forwarding, descriptor ownership, and `epoll` / `eventfd`. These results validate the executed regressions, not every possible concurrency interleaving.
 
 ## Quick Demo (No Hardware Required)
 
@@ -209,6 +193,7 @@ printf 'id=2;\nsrc=00:11:22:33:44:66;\ndst=ff:ff:ff:ff:ff:ff;\npayload=Hello Edg
 Inspect system state:
 
 ```bash
+echo "1.2|status" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|packet-stats:json" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|ingress-stats:json" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|fd-status" | nc -U /tmp/edgenetswitch.sock
@@ -225,7 +210,7 @@ echo "1.2|send-packet:topology-demo" | nc -U /tmp/edgenetswitch.sock
 echo "1.2|show:mac-table" | nc -U /tmp/edgenetswitch.sock
 ```
 
-This demonstrates readiness-driven multi-endpoint UDP ingress, receive-path and per-ingress socket visibility, lifecycle tracking, MAC learning, forwarding decision observability, descriptor lifecycle visibility, configuration inspection, and packet-path telemetry without hardware dependencies.
+This demonstrates multi-endpoint ingress, operational health, lifecycle tracking, MAC learning, forwarding and descriptor visibility, and configuration inspection without hardware dependencies.
 
 ## Contributing
 
