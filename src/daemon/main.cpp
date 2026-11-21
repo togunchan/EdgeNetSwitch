@@ -485,8 +485,8 @@ int main(int argc, char *argv[])
                 break;
             }
 
-            telemetry.onTick();
             healthMonitor.onTick();
+            telemetry.onTick();
 
             auto status =
                 statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
