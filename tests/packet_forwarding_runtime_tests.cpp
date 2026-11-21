@@ -801,12 +801,15 @@ TEST_CASE("TransportManager updates counters for successful transmit",
           "[PacketForwardingRuntime][Transport]")
 {
     transport::TransportManager transport_manager;
-    registerBackend(transport_manager, 4, transport::TransmitStatus::Success);
+    // The manager owns egress attribution even when the backend reports a different port.
+    transport_manager.registerBackend(
+        4, std::make_unique<FakePortBackend>(99, transport::TransmitStatus::Success));
     const Packet packet = makePacket(10, mac("00:11:22:33:44:01"), mac("00:11:22:33:44:02"), 2);
 
     const auto result = transport_manager.transmit(4, packet);
 
     REQUIRE(result.status == transport::TransmitStatus::Success);
+    REQUIRE(result.port_id == 4);
     requireCounters(transport_manager.counters(),
                     {.tx_packets = 1, .tx_bytes = packet.payload.size()});
 }
@@ -814,12 +817,14 @@ TEST_CASE("TransportManager updates counters for successful transmit",
 TEST_CASE("TransportManager updates counters for port down", "[PacketForwardingRuntime][Transport]")
 {
     transport::TransportManager transport_manager;
-    registerBackend(transport_manager, 4, transport::TransmitStatus::PortDown);
+    transport_manager.registerBackend(
+        4, std::make_unique<FakePortBackend>(0, transport::TransmitStatus::PortDown));
     const Packet packet = makePacket(12, mac("00:11:22:33:44:01"), mac("00:11:22:33:44:02"), 2);
 
     const auto result = transport_manager.transmit(4, packet);
 
     REQUIRE(result.status == transport::TransmitStatus::PortDown);
+    REQUIRE(result.port_id == 4);
     requireCounters(transport_manager.counters(), {.tx_failed = 1, .port_down = 1});
 }
 
@@ -827,12 +832,14 @@ TEST_CASE("TransportManager updates counters for invalid packet",
           "[PacketForwardingRuntime][Transport]")
 {
     transport::TransportManager transport_manager;
-    registerBackend(transport_manager, 4, transport::TransmitStatus::InvalidPacket);
+    transport_manager.registerBackend(
+        4, std::make_unique<FakePortBackend>(99, transport::TransmitStatus::InvalidPacket));
     const Packet packet = makePacket(13, mac("00:11:22:33:44:01"), mac("00:11:22:33:44:02"), 2);
 
     const auto result = transport_manager.transmit(4, packet);
 
     REQUIRE(result.status == transport::TransmitStatus::InvalidPacket);
+    REQUIRE(result.port_id == 4);
     requireCounters(transport_manager.counters(), {.tx_failed = 1, .invalid_packet = 1});
 }
 
@@ -840,13 +847,31 @@ TEST_CASE("TransportManager updates counters for send failed",
           "[PacketForwardingRuntime][Transport]")
 {
     transport::TransportManager transport_manager;
-    registerBackend(transport_manager, 4, transport::TransmitStatus::SendFailed);
+    // Reproduce a backend failure that leaves TransmitResult::port_id at zero.
+    transport_manager.registerBackend(
+        4, std::make_unique<FakePortBackend>(0, transport::TransmitStatus::SendFailed));
     const Packet packet = makePacket(14, mac("00:11:22:33:44:01"), mac("00:11:22:33:44:02"), 2);
 
     const auto result = transport_manager.transmit(4, packet);
 
     REQUIRE(result.status == transport::TransmitStatus::SendFailed);
+    REQUIRE(result.port_id == 4);
     requireCounters(transport_manager.counters(), {.tx_failed = 1});
+}
+
+TEST_CASE("TransportManager attributes a registered backend unavailable result to the requested port",
+          "[PacketForwardingRuntime][Transport]")
+{
+    transport::TransportManager transport_manager;
+    transport_manager.registerBackend(
+        4, std::make_unique<FakePortBackend>(0, transport::TransmitStatus::BackendUnavailable));
+    const Packet packet = makePacket(16, mac("00:11:22:33:44:01"), mac("00:11:22:33:44:02"), 2);
+
+    const auto result = transport_manager.transmit(4, packet);
+
+    REQUIRE(result.status == transport::TransmitStatus::BackendUnavailable);
+    REQUIRE(result.port_id == 4);
+    requireCounters(transport_manager.counters(), {.tx_failed = 1, .backend_unavailable = 1});
 }
 
 TEST_CASE("TransportManager resetCounters clears accumulated counters",

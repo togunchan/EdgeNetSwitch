@@ -28,7 +28,7 @@ namespace edgenetswitch::transport
         }
 
         auto result = it->second->transmit(packet);
-
+        result.port_id = port_id;
         {
             std::lock_guard<std::mutex> lock(counters_mutex_);
             switch (result.status)
