@@ -160,7 +160,7 @@ TEST_CASE("TelemetryExportManager idle worker stop must complete",
         });
 }
 
-TEST_CASE("TelemetryExportManager worker processes later samples after an exporter throws",
+TEST_CASE("TelemetryExportManager stop drains queued samples after an exporter throws",
           "[TelemetryExportManager][RuntimeLifecycle]")
 {
     requireCleanExit(
@@ -178,31 +178,33 @@ TEST_CASE("TelemetryExportManager worker processes later samples after an export
             manager.start();
             manager.enqueue(RuntimeMetrics{.tick_count = 101});
             // The healthy exporter is registered after the throwing exporter. Its gate
-            // acknowledges delivery of sample 1 before sample 2 can be admitted.
+            // acknowledges that the first exception was isolated before more work is queued.
             const bool first_received = gate.waitForArrival();
-            bool second_received = false;
-            if (first_received)
-            {
-                manager.enqueue(RuntimeMetrics{.tick_count = 102});
-                gate.release();
-                std::unique_lock<std::mutex> lock(samples.mutex);
-                // The predicate acknowledges actual delivery; the timeout only guards failure.
-                second_received = samples.cv.wait_for(lock, std::chrono::seconds(3),
-                                                      [&] { return samples.ticks.size() == 2; });
-            }
+            manager.enqueue(RuntimeMetrics{.tick_count = 102});
+            manager.enqueue(RuntimeMetrics{.tick_count = 103});
+            const auto retained = manager.queueSize();
 
+            // The worker holds sample 101 and cannot consume the two retained samples yet.
+            // Do not wait for later delivery before stop: it must drain/join after release.
             gate.release();
             manager.stop();
             // stop() has joined the worker, so exporter state is safe to inspect here.
             const bool drained = manager.queueSize() == 0 && manager.droppedCount() == 0 &&
-                                 samples.ticks == std::vector<std::uint64_t>{101, 102};
-            std::fprintf(
-                stderr,
-                "async exceptions: first=%d; second=%d; throws=%d; exported=%zu; queue=%zu\n",
-                first_received, second_received, throwing_ptr->call_count, samples.ticks.size(),
-                manager.queueSize());
-            return first_received && second_received && throwing_ptr->call_count == 2 && drained
-                       ? 0
-                       : 1;
+                                 throwing_ptr->call_count == 3 &&
+                                 samples.ticks == std::vector<std::uint64_t>{101, 102, 103};
+
+            manager.stop(); // Repeated stop remains safe after exception-isolated drain.
+            manager.enqueue(RuntimeMetrics{.tick_count = 999});
+            const bool rejected = manager.queueSize() == 0;
+            manager.stop();
+            const bool unchanged = manager.queueSize() == 0 && manager.droppedCount() == 0 &&
+                                   throwing_ptr->call_count == 3 &&
+                                   samples.ticks == std::vector<std::uint64_t>{101, 102, 103};
+            std::fprintf(stderr,
+                         "async exception drain: first=%d; retained=%zu; throws=%d; exported=%zu; "
+                         "queue=%zu\n",
+                         first_received, retained, throwing_ptr->call_count, samples.ticks.size(),
+                         manager.queueSize());
+            return first_received && retained == 2 && drained && rejected && unchanged ? 0 : 1;
         });
 }
