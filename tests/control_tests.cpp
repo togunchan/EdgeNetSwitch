@@ -54,6 +54,9 @@ namespace
         s.packet.queue_depth = 17;
         s.packet.queue_capacity = 1024;
         s.packet.queue_high_water_mark = 63;
+        s.packet.forwarding_drop_decisions = 11;
+        s.packet.forwarding_flood_decisions = 23;
+        s.packet.forwarding_forward_decisions = 37;
         return s;
     }
 
@@ -253,6 +256,15 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         CHECK(data.at("queue_depth") == 17);
         CHECK(data.at("queue_capacity") == 1024);
         CHECK(data.at("queue_high_water_mark") == 63);
+        REQUIRE(data.contains("forwarding_drop_decisions"));
+        REQUIRE(data.contains("forwarding_flood_decisions"));
+        REQUIRE(data.contains("forwarding_forward_decisions"));
+        CHECK(data.at("forwarding_drop_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_flood_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_forward_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_drop_decisions") == 11);
+        CHECK(data.at("forwarding_flood_decisions") == 23);
+        CHECK(data.at("forwarding_forward_decisions") == 37);
     }
 
     SECTION("show-config json")
@@ -292,7 +304,9 @@ TEST_CASE("Text mode exposes key=value output", "[control][text]")
         {"packet-stats",
          {"rx_packets=", "rx_bytes=", "\ndrops_simulated_loss=5\n", "\ndrops_processing_error=6\n",
           "\ndrops_internal_error=7\n", "\ndrops_unknown=8\n", "\ndrops_total=33\n",
-          "\nqueue_depth=17\n", "\nqueue_capacity=1024\n", "\nqueue_high_water_mark=63\n"}},
+          "\nqueue_depth=17\n", "\nqueue_capacity=1024\n", "\nqueue_high_water_mark=63\n",
+          "\nforwarding_drop_decisions=11\n", "\nforwarding_flood_decisions=23\n",
+          "\nforwarding_forward_decisions=37\n"}},
         {"show-config",
          {"log.level=", "daemon.tick_ms=", "udp.endpoint.switch_port=", "rate.window_ms="}},
     };

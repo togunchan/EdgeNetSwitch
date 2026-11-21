@@ -5,6 +5,7 @@
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/switching/ForwardingEvent.hpp"
 
 #include <atomic>
 #include <initializer_list>
@@ -52,6 +53,101 @@ namespace
         PacketPipelineFixture() : bus(), stats(bus), processor(bus) {}
     };
 } // namespace
+
+TEST_CASE("PacketStats counts each forwarding action independently", "[PacketPipeline][Forwarding]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    const auto initial = stats.snapshotAt(now_ms);
+    CHECK(initial.forwarding_drop_decisions == 0);
+    CHECK(initial.forwarding_flood_decisions == 0);
+    CHECK(initial.forwarding_forward_decisions == 0);
+
+    const auto publish_and_check = [&](ForwardingAction action, std::uint64_t expected_drop,
+                                       std::uint64_t expected_flood, std::uint64_t expected_forward)
+    {
+        bus.publish(Message{.type = MessageType::ForwardingDecisionMade,
+                            .timestamp_ms = now_ms,
+                            .payload = ForwardingEvent{.lifecycle_id = 1, .action = action}});
+
+        const auto metrics = stats.snapshotAt(now_ms);
+        CHECK(metrics.forwarding_drop_decisions == expected_drop);
+        CHECK(metrics.forwarding_flood_decisions == expected_flood);
+        CHECK(metrics.forwarding_forward_decisions == expected_forward);
+        CHECK(metrics.drops_by_reason == initial.drops_by_reason);
+        CHECK(metrics.terminal_events == initial.terminal_events);
+        CHECK(metrics.processed_packets == initial.processed_packets);
+    };
+
+    publish_and_check(ForwardingAction::Drop, 1, 0, 0);
+    publish_and_check(ForwardingAction::Flood, 1, 1, 0);
+    publish_and_check(ForwardingAction::ForwardToPorts, 1, 1, 1);
+}
+
+TEST_CASE("Forwarding Drop leaves packet accounting open until a separate terminal event",
+          "[PacketPipeline][Forwarding]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+    const Packet packet{.lifecycle_id = 1, .payload = "forwarding drop", .timestamp_ms = now_ms};
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = packet});
+    const auto before = stats.snapshotAt(now_ms);
+    REQUIRE(before.pending_terminal_events == 1);
+
+    bus.publish(Message{.type = MessageType::ForwardingDecisionMade,
+                        .timestamp_ms = now_ms,
+                        .payload = ForwardingEvent{.lifecycle_id = packet.lifecycle_id,
+                                                   .action = ForwardingAction::Drop}});
+
+    const auto decision = stats.snapshotAt(now_ms);
+    CHECK(decision.forwarding_drop_decisions == 1);
+    CHECK(decision.forwarding_flood_decisions == 0);
+    CHECK(decision.forwarding_forward_decisions == 0);
+    CHECK(decision.drops_by_reason == before.drops_by_reason);
+    CHECK(decision.terminal_events == before.terminal_events);
+    CHECK(decision.processed_packets == before.processed_packets);
+    CHECK(decision.pending_terminal_events == 1);
+
+    SECTION("PacketProcessed terminates a forwarding drop without a packet drop")
+    {
+        bus.publish(Message{.type = MessageType::PacketProcessed,
+                            .timestamp_ms = now_ms,
+                            .payload = packet});
+
+        const auto processed = stats.snapshotAt(now_ms);
+        CHECK(processed.processed_packets == before.processed_packets + 1);
+        CHECK(processed.drops_by_reason == before.drops_by_reason);
+    }
+
+    SECTION("Only an explicit PacketDropped records a packet drop")
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = PacketDropReason::ProcessingError,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = packet.lifecycle_id}});
+
+        const auto dropped = stats.snapshotAt(now_ms);
+        CHECK(dropped.processed_packets == before.processed_packets);
+        REQUIRE(dropped.drops_by_reason.contains(PacketDropReason::ProcessingError));
+        CHECK(dropped.drops_by_reason.at(PacketDropReason::ProcessingError) == 1);
+        CHECK(dropsTotal(dropped) == 1);
+    }
+
+    const auto terminal = stats.snapshotAt(now_ms);
+    CHECK(terminal.terminal_events == before.terminal_events + 1);
+    CHECK(terminal.pending_terminal_events == 0);
+    CHECK(terminal.duplicate_events == 0);
+    CHECK(terminal.forwarding_drop_decisions == 1);
+    CHECK(terminal.forwarding_flood_decisions == 0);
+    CHECK(terminal.forwarding_forward_decisions == 0);
+}
 
 TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics",
           "[PacketPipeline]")

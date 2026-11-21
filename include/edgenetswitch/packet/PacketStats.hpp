@@ -38,6 +38,9 @@ namespace edgenetswitch
         std::uint64_t queue_depth{0};
         std::uint64_t queue_capacity{0};
         std::uint64_t queue_high_water_mark{0};
+        std::uint64_t forwarding_drop_decisions{0};
+        std::uint64_t forwarding_flood_decisions{0};
+        std::uint64_t forwarding_forward_decisions{0};
     };
 
     class PacketStats
@@ -77,6 +80,9 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> last_kernel_receive_realtime_ns_{0};
         std::atomic<std::uint32_t> last_kernel_receive_drop_count_{0};
         std::atomic<std::uint64_t> last_kernel_to_userspace_receive_latency_ns_{0};
+        std::atomic<std::uint64_t> forwarding_drop_decisions_{0};
+        std::atomic<std::uint64_t> forwarding_flood_decisions_{0};
+        std::atomic<std::uint64_t> forwarding_forward_decisions_{0};
     };
 
 } // namespace edgenetswitch

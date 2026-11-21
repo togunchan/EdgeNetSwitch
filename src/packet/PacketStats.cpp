@@ -122,6 +122,32 @@ namespace edgenetswitch
 
         bus.subscribe(MessageType::IngressIdlePoll, [this](const Message &msg)
                       { udp_drain_completions_.fetch_add(1, std::memory_order_relaxed); });
+
+        bus.subscribe(MessageType::ForwardingDecisionMade,
+                      [this](const Message &msg)
+                      {
+                          const auto *event = std::get_if<ForwardingEvent>(&msg.payload);
+
+                          if (!event)
+                          {
+                              return;
+                          }
+
+                          switch (event->action)
+                          {
+                          case ForwardingAction::Drop:
+                              forwarding_drop_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+
+                          case ForwardingAction::Flood:
+                              forwarding_flood_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+
+                          case ForwardingAction::ForwardToPorts:
+                              forwarding_forward_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+                          }
+                      });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
@@ -173,28 +199,35 @@ namespace edgenetswitch
             average_latency = total_latency / latency_samples;
         }
 
-        return PacketMetrics{.rx_packets = current_packets,
-                             .rx_bytes = current_bytes,
-                             .rx_packets_per_sec = 0,
-                             .rx_bytes_per_sec = 0,
-                             .drops_by_reason = std::move(drop_snapshot),
-                             .rx_packets_per_sec_raw = 0,
-                             .rx_bytes_per_sec_raw = 0,
-                             .ingress_packets = ingress_packets,
-                             .processed_packets = processed_packets,
-                             .processing_gap = processing_gap,
-                             .terminal_events = terminal_events,
-                             .duplicate_events = duplicate_events,
-                             .pending_terminal_events = pending_terminal_events,
-                             .total_processing_latency_ns = total_latency,
-                             .max_processing_latency_ns = max_latency,
-                             .average_processing_latency_ns = average_latency,
-                             .latency_samples = latency_samples,
-                             .udp_drain_completions = udp_drain_completions,
-                             .last_kernel_receive_realtime_ns = last_kernel_receive_realtime_ns,
-                             .last_kernel_receive_drop_count = last_kernel_receive_drop_count,
-                             .last_kernel_to_userspace_receive_latency_ns =
-                                 last_kernel_to_userspace_receive_latency_ns};
+        return PacketMetrics{
+            .rx_packets = current_packets,
+            .rx_bytes = current_bytes,
+            .rx_packets_per_sec = 0,
+            .rx_bytes_per_sec = 0,
+            .drops_by_reason = std::move(drop_snapshot),
+            .rx_packets_per_sec_raw = 0,
+            .rx_bytes_per_sec_raw = 0,
+            .ingress_packets = ingress_packets,
+            .processed_packets = processed_packets,
+            .processing_gap = processing_gap,
+            .terminal_events = terminal_events,
+            .duplicate_events = duplicate_events,
+            .pending_terminal_events = pending_terminal_events,
+            .total_processing_latency_ns = total_latency,
+            .max_processing_latency_ns = max_latency,
+            .average_processing_latency_ns = average_latency,
+            .latency_samples = latency_samples,
+            .udp_drain_completions = udp_drain_completions,
+            .last_kernel_receive_realtime_ns = last_kernel_receive_realtime_ns,
+            .last_kernel_receive_drop_count = last_kernel_receive_drop_count,
+            .last_kernel_to_userspace_receive_latency_ns =
+                last_kernel_to_userspace_receive_latency_ns,
+            .forwarding_drop_decisions = forwarding_drop_decisions_.load(std::memory_order_relaxed),
+            .forwarding_flood_decisions =
+                forwarding_flood_decisions_.load(std::memory_order_relaxed),
+            .forwarding_forward_decisions =
+                forwarding_forward_decisions_.load(std::memory_order_relaxed),
+        };
     }
 
     std::uint64_t PacketStats::rxPackets() const

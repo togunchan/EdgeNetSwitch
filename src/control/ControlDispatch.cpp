@@ -271,6 +271,9 @@ namespace edgenetswitch::control
             j["queue_depth"] = snap->packet.queue_depth;
             j["queue_capacity"] = snap->packet.queue_capacity;
             j["queue_high_water_mark"] = snap->packet.queue_high_water_mark;
+            j["forwarding_drop_decisions"] = snap->packet.forwarding_drop_decisions;
+            j["forwarding_flood_decisions"] = snap->packet.forwarding_flood_decisions;
+            j["forwarding_forward_decisions"] = snap->packet.forwarding_forward_decisions;
 
             return makeJsonSuccess(j);
         }
@@ -319,6 +322,13 @@ namespace edgenetswitch::control
         payload += "queue_capacity=" + std::to_string(snap->packet.queue_capacity) + "\n";
         payload +=
             "queue_high_water_mark=" + std::to_string(snap->packet.queue_high_water_mark) + "\n";
+        payload +=
+            "forwarding_drop_decisions=" + std::to_string(snap->packet.forwarding_drop_decisions) +
+            "\n";
+        payload += "forwarding_flood_decisions=" +
+                   std::to_string(snap->packet.forwarding_flood_decisions) + "\n";
+        payload += "forwarding_forward_decisions=" +
+                   std::to_string(snap->packet.forwarding_forward_decisions) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
@@ -718,7 +728,8 @@ namespace edgenetswitch::control
               .description = "packet pipeline statistics",
               .fields = {"rx_packets", "rx_bytes", "drops", "last_kernel_receive_realtime_ns",
                          "last_kernel_receive_drop_count", "queue_depth", "queue_capacity",
-                         "queue_high_water_mark"},
+                         "queue_high_water_mark", "forwarding_drop_decisions",
+                         "forwarding_flood_decisions", "forwarding_forward_decisions"},
               .handler = handlePacketStats}},
 
             {"show-config",
