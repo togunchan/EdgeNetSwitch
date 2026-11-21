@@ -22,7 +22,7 @@ namespace edgenetswitch
 
     private:
         EpollManager &epoll_;
-        std::atomic<bool> running_{false};
+        std::atomic<bool> stop_requested_{false};
         std::map<int, IEpollHandler *> handlers_;
         EventFd shutdown_event_;
         ShutdownWakeupHandler shutdown_handler_;

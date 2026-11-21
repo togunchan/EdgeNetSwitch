@@ -22,10 +22,12 @@ namespace edgenetswitch::control
                                  const core::Config &config, MessagingBus &bus,
                                  SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
                                  edgenetswitch::transport::TransportManager &transport_manager,
-                                 IngressManager &ingress_manager)
+                                 IngressManager &ingress_manager,
+                                 LifecycleIdGenerator &lifecycle_generator)
         : listen_fd_(listen_fd), publisher_(publisher), config_(config), bus_(bus),
           forwarding_engine_(forwarding_engine), fd_registry_(fd_registry),
-          transport_manager_(transport_manager), ingress_manager_(ingress_manager)
+          transport_manager_(transport_manager), ingress_manager_(ingress_manager),
+          lifecycle_generator_(lifecycle_generator)
 
     {
     }
@@ -39,6 +41,9 @@ namespace edgenetswitch::control
     {
         while (true)
         {
+            if (!accepting_.load(std::memory_order_acquire))
+                return;
+
             int client_fd =
                 ::accept4(listen_fd_.get(), nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
 
@@ -83,13 +88,20 @@ namespace edgenetswitch::control
 
             Logger::info("Control command received: " + req.command);
 
+            if (!accepting_.load(std::memory_order_acquire))
+            {
+                ::close(client_fd);
+                return;
+            }
+
             control::ControlContext ctx{.publisher = &publisher_,
                                         .config = &config_,
                                         .bus = &bus_,
                                         .forwarding_engine = &forwarding_engine_,
                                         .fd_registry = &fd_registry_,
                                         .transport_manager = &transport_manager_,
-                                        .ingress_manager = &ingress_manager_};
+                                        .ingress_manager = &ingress_manager_,
+                                        .lifecycle_generator = &lifecycle_generator_};
 
             const control::ControlResponse resp = control::dispatchControlRequest(req, ctx);
             writeControlResponse(client_fd, resp);
@@ -103,5 +115,10 @@ namespace edgenetswitch::control
             resp.payload.empty() ? control::encodeResponse(resp) : resp.payload;
 
         ::write(client_fd, wire.c_str(), wire.size());
+    }
+
+    void ControlServer::closeAdmission() noexcept
+    {
+        accepting_.store(false, std::memory_order_release);
     }
 } // namespace edgenetswitch::control

@@ -48,6 +48,7 @@ namespace edgenetswitch::control
         {
             nlohmann::json j;
             j["state"] = stateToString(snap->state);
+            j["operational_health"] = operationalHealthToString(snap->operational_health);
             j["uptime_ms"] = snap->metrics.uptime_ms;
             j["tick_count"] = snap->metrics.tick_count;
             j["snapshot_version"] = snap->snapshot_version;
@@ -56,13 +57,17 @@ namespace edgenetswitch::control
             return makeJsonSuccess(j);
         }
 
-        return ControlResponse{
-            .success = true,
-            .payload = "state=" + stateToString(snap->state) + "\n" +
-                       "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
-                       "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n" +
-                       "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n" +
-                       "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms)};
+        std::string payload;
+
+        payload += "state=" + stateToString(snap->state) + "\n";
+        payload +=
+            "operational_health=" + operationalHealthToString(snap->operational_health) + "\n";
+        payload += "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n";
+        payload += "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n";
+        payload += "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n";
+        payload += "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms);
+
+        return ControlResponse{.success = true, .payload = std::move(payload)};
     }
 
     static ControlResponse handleHealth(const ControlContext &ctx, const std::string &arg)
@@ -212,6 +217,12 @@ namespace edgenetswitch::control
             return "rate_limited";
         case PacketDropReason::DatagramTruncated:
             return "datagram_truncated";
+        case PacketDropReason::SimulatedLoss:
+            return "simulated_loss";
+        case PacketDropReason::ProcessingError:
+            return "processing_error";
+        case PacketDropReason::InternalError:
+            return "internal_error";
         default:
             return "unknown";
         }
@@ -262,7 +273,12 @@ namespace edgenetswitch::control
             j["last_kernel_receive_drop_count"] = snap->packet.last_kernel_receive_drop_count;
             j["last_kernel_to_userspace_receive_latency_ns"] =
                 snap->packet.last_kernel_to_userspace_receive_latency_ns;
-
+            j["queue_depth"] = snap->packet.queue_depth;
+            j["queue_capacity"] = snap->packet.queue_capacity;
+            j["queue_high_water_mark"] = snap->packet.queue_high_water_mark;
+            j["forwarding_drop_decisions"] = snap->packet.forwarding_drop_decisions;
+            j["forwarding_flood_decisions"] = snap->packet.forwarding_flood_decisions;
+            j["forwarding_forward_decisions"] = snap->packet.forwarding_forward_decisions;
             return makeJsonSuccess(j);
         }
 
@@ -288,11 +304,13 @@ namespace edgenetswitch::control
         payload += "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n";
         payload +=
             "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
-        payload += "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw);
-        payload += "terminal_events=" + std::to_string(snap->packet.terminal_events);
-        payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events);
         payload +=
-            "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events);
+            "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw) + "\n";
+        payload += "terminal_events=" + std::to_string(snap->packet.terminal_events) + "\n";
+        payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events) + "\n";
+        payload +=
+            "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events) +
+            "\n";
         payload += "average_processing_latency_ns=" +
                    std::to_string(snap->packet.average_processing_latency_ns) + "\n";
         payload +=
@@ -306,6 +324,17 @@ namespace edgenetswitch::control
                    std::to_string(snap->packet.last_kernel_receive_drop_count) + "\n";
         payload += "last_kernel_to_userspace_receive_latency_ns=" +
                    std::to_string(snap->packet.last_kernel_to_userspace_receive_latency_ns) + "\n";
+        payload += "queue_depth=" + std::to_string(snap->packet.queue_depth) + "\n";
+        payload += "queue_capacity=" + std::to_string(snap->packet.queue_capacity) + "\n";
+        payload +=
+            "queue_high_water_mark=" + std::to_string(snap->packet.queue_high_water_mark) + "\n";
+        payload +=
+            "forwarding_drop_decisions=" + std::to_string(snap->packet.forwarding_drop_decisions) +
+            "\n";
+        payload += "forwarding_flood_decisions=" +
+                   std::to_string(snap->packet.forwarding_flood_decisions) + "\n";
+        payload += "forwarding_forward_decisions=" +
+                   std::to_string(snap->packet.forwarding_forward_decisions) + "\n";
 
         return ControlResponse{.success = true, .payload = std::move(payload)};
     }
@@ -364,8 +393,9 @@ namespace edgenetswitch::control
     }
 
     static void publishSyntheticPacket(MessagingBus &bus, std::uint64_t id,
-                                       const std::string &payload, const char *source_mac_str,
-                                       const char *destination_mac_str, std::uint32_t ingress_port)
+                                       std::uint64_t lifecycle_id, const std::string &payload,
+                                       const char *source_mac_str, const char *destination_mac_str,
+                                       std::uint32_t ingress_port)
     {
         auto source_mac = MacAddress::fromString(source_mac_str);
         auto destination_mac = MacAddress::fromString(destination_mac_str);
@@ -377,7 +407,7 @@ namespace edgenetswitch::control
 
         Packet packet{};
         packet.id = id;
-        packet.lifecycle_id = id;
+        packet.lifecycle_id = lifecycle_id;
         packet.timestamp_ms = nowMs();
         packet.payload = payload;
         packet.payload_size = static_cast<std::uint32_t>(packet.payload.size());
@@ -397,6 +427,11 @@ namespace edgenetswitch::control
 
     static ControlResponse handleSendPacket(const ControlContext &ctx, const std::string &arg)
     {
+        if (!ctx.lifecycle_generator)
+        {
+            return makeJsonError(error::InternalError, "lifecycle generator unavailable");
+        }
+
         if (!ctx.bus)
         {
             return makeJsonError(error::InternalError, "messaging bus unavailable");
@@ -404,23 +439,24 @@ namespace edgenetswitch::control
 
         if (arg == "broadcast")
         {
-            publishSyntheticPacket(*ctx.bus, 999, "control-plane-broadcast", "00:11:22:33:44:55",
-                                   "ff:ff:ff:ff:ff:ff", 2);
+            const auto lifecycle_id = ctx.lifecycle_generator->next();
 
+            publishSyntheticPacket(*ctx.bus, 999, lifecycle_id, "control-plane-broadcast",
+                                   "00:11:22:33:44:55", "ff:ff:ff:ff:ff:ff", 2);
             nlohmann::json j;
             j["result"] = "packet injected";
             j["mode"] = arg;
-            j["lifecycle_id"] = 999;
+            j["lifecycle_id"] = lifecycle_id;
 
             return makeJsonSuccess(j);
         }
         else if (arg == "learn")
         {
-            publishSyntheticPacket(*ctx.bus, 1000, "mac-learning", "AA:AA:AA:AA:AA:AA",
-                                   "FF:FF:FF:FF:FF:FF", 1);
+            publishSyntheticPacket(*ctx.bus, 1000, ctx.lifecycle_generator->next(), "mac-learning",
+                                   "AA:AA:AA:AA:AA:AA", "FF:FF:FF:FF:FF:FF", 1);
 
-            publishSyntheticPacket(*ctx.bus, 1001, "known-unicast", "BB:BB:BB:BB:BB:BB",
-                                   "AA:AA:AA:AA:AA:AA", 2);
+            publishSyntheticPacket(*ctx.bus, 1001, ctx.lifecycle_generator->next(), "known-unicast",
+                                   "BB:BB:BB:BB:BB:BB", "AA:AA:AA:AA:AA:AA", 2);
 
             nlohmann::json j;
             j["result"] = "mac learning sequence injected";
@@ -429,20 +465,21 @@ namespace edgenetswitch::control
         }
         else if (arg == "topology-demo")
         {
-            publishSyntheticPacket(*ctx.bus, 2000, "broadcast-discovery", "AA:AA:AA:AA:AA:AA",
-                                   "FF:FF:FF:FF:FF:FF", 1);
+            publishSyntheticPacket(*ctx.bus, 2000, ctx.lifecycle_generator->next(),
+                                   "broadcast-discovery", "AA:AA:AA:AA:AA:AA", "FF:FF:FF:FF:FF:FF",
+                                   1);
 
-            publishSyntheticPacket(*ctx.bus, 2001, "known-unicast-bb", "BB:BB:BB:BB:BB:BB",
-                                   "AA:AA:AA:AA:AA:AA", 2);
+            publishSyntheticPacket(*ctx.bus, 2001, ctx.lifecycle_generator->next(),
+                                   "known-unicast-bb", "BB:BB:BB:BB:BB:BB", "AA:AA:AA:AA:AA:AA", 2);
 
-            publishSyntheticPacket(*ctx.bus, 2002, "known-unicast-cc", "CC:CC:CC:CC:CC:CC",
-                                   "AA:AA:AA:AA:AA:AA", 3);
+            publishSyntheticPacket(*ctx.bus, 2002, ctx.lifecycle_generator->next(),
+                                   "known-unicast-cc", "CC:CC:CC:CC:CC:CC", "AA:AA:AA:AA:AA:AA", 3);
 
-            publishSyntheticPacket(*ctx.bus, 2003, "unknown-unicast", "DD:DD:DD:DD:DD:DD",
-                                   "EE:EE:EE:EE:EE:EE", 4);
+            publishSyntheticPacket(*ctx.bus, 2003, ctx.lifecycle_generator->next(),
+                                   "unknown-unicast", "DD:DD:DD:DD:DD:DD", "EE:EE:EE:EE:EE:EE", 4);
 
-            publishSyntheticPacket(*ctx.bus, 2004, "known-unicast-ee", "EE:EE:EE:EE:EE:EE",
-                                   "CC:CC:CC:CC:CC:CC", 5);
+            publishSyntheticPacket(*ctx.bus, 2004, ctx.lifecycle_generator->next(),
+                                   "known-unicast-ee", "EE:EE:EE:EE:EE:EE", "CC:CC:CC:CC:CC:CC", 5);
 
             nlohmann::json j;
             j["result"] = "topology demo injected";
@@ -576,7 +613,7 @@ namespace edgenetswitch::control
             return makeJsonError(error::InvalidRequest, "unsupported argument: " + arg);
         }
 
-        const auto &counters = ctx.transport_manager->counters();
+        const auto counters = ctx.transport_manager->counters();
 
         if (arg == "json")
         {
@@ -665,7 +702,7 @@ namespace edgenetswitch::control
             {"status",
              {.name = "status",
               .description = "runtime state and core metrics",
-              .fields = {"state", "uptime_ms", "tick_count"},
+              .fields = {"state", "operational_health", "uptime_ms", "tick_count"},
               .handler = handleStatus}},
 
             {"health",
@@ -696,7 +733,9 @@ namespace edgenetswitch::control
              {.name = "packet-stats",
               .description = "packet pipeline statistics",
               .fields = {"rx_packets", "rx_bytes", "drops", "last_kernel_receive_realtime_ns",
-                         "last_kernel_receive_drop_count"},
+                         "last_kernel_receive_drop_count", "queue_depth", "queue_capacity",
+                         "queue_high_water_mark", "forwarding_drop_decisions",
+                         "forwarding_flood_decisions", "forwarding_forward_decisions"},
               .handler = handlePacketStats}},
 
             {"show-config",

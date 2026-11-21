@@ -30,9 +30,10 @@
 #include "edgenetswitch/transport/UdpPortBackend.hpp"
 #include "runtime/RuntimeStatusBuilder.hpp"
 #include "runtime/SnapshotPublisher.hpp"
-#include "telemetry/FileTelemetryExporter.hpp"
-#include "telemetry/InMemoryTelemetryExporter.hpp"
-#include "telemetry/TelemetryExportManager.hpp"
+#include "edgenetswitch/telemetry/FileTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExportManager.hpp"
+#include "edgenetswitch/telemetry/StdoutTelemetryExporter.hpp"
 
 #include <cstddef>
 #include <fcntl.h>
@@ -310,7 +311,7 @@ int main(int argc, char *argv[])
 
         {
             auto status =
-                statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+                statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
 
             g_snapshotPublisher.publish(status);
         }
@@ -319,7 +320,7 @@ int main(int argc, char *argv[])
         {
             controlServer = std::make_unique<control::ControlServer>(
                 control_fd, g_snapshotPublisher, cfg, bus, forwardingEngine, fd_registry,
-                transportManager, ingressManager);
+                transportManager, ingressManager, lifecycleGenerator);
 
             controlHandler = std::make_unique<ControlReadyHandler>(*controlServer);
 
@@ -484,14 +485,28 @@ int main(int argc, char *argv[])
                 break;
             }
 
-            telemetry.onTick();
             healthMonitor.onTick();
+            telemetry.onTick();
 
             auto status =
-                statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
+                statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
 
             g_snapshotPublisher.publish(status);
             std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
+        }
+
+        runtimeState = RuntimeState::Stopping;
+        Logger::warn("Stop requested. Shutting down...");
+        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
+        {
+            auto status = statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor,
+                                               runtimeState, nowMs());
+            g_snapshotPublisher.publish(status);
+            Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
+                         " operational_health=" +
+                         operationalHealthToString(status.operational_health) +
+                         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
+                         " tick_count=" + std::to_string(status.metrics.tick_count));
         }
 
 #ifdef EDGENETSWITCH_DEBUG_READER
@@ -500,6 +515,11 @@ int main(int argc, char *argv[])
             debugReaderThread.join();
         }
 #endif
+        Logger::info("[SHUTDOWN] Closing control admission");
+        if (controlServer)
+        {
+            controlServer->closeAdmission();
+        }
 
         Logger::info("[SHUTDOWN] Stopping epoll event loop");
         epollLoop.stop();
@@ -515,18 +535,14 @@ int main(int argc, char *argv[])
         destroyControlSocket(control_fd);
         ingressManager.shutdown();
 
+        Logger::info("[SHUTDOWN] Stopping packet processor");
+        packetProcessor.stop();
+        Logger::info("[SHUTDOWN] Packet processor stopped");
+
         Logger::info("[SHUTDOWN] Stopping telemetry export manager");
         exportManager.stop();
         Logger::info("[SHUTDOWN] Telemetry export manager stopped");
 
-        runtimeState = RuntimeState::Stopping;
-        Logger::warn("Stop requested. Shutting down...");
-        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
-        const auto status =
-            statusBuilder.build(telemetry, healthMonitor, packetStats, runtimeState, nowMs());
-        Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
-                     " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
-                     " tick_count=" + std::to_string(status.metrics.tick_count));
         bus.publish({MessageType::SystemShutdown, nowMs()});
     }
 

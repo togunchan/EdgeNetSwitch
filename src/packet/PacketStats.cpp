@@ -9,12 +9,13 @@ namespace edgenetswitch
     void PacketStats::onTerminal(uint64_t lifecycle_id)
     {
         std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-        if (!completed_lifecycles_.insert(lifecycle_id).second)
+        if (!recordCompletedLifecycleLocked(lifecycle_id))
         {
             duplicate_events_.fetch_add(1, std::memory_order_relaxed);
             return;
         }
 
+        active_lifecycles_.erase(lifecycle_id);
         terminal_events_.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -27,11 +28,13 @@ namespace edgenetswitch
                 const Packet &p = std::get<Packet>(msg.payload);
 
                 std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-                if (!completed_lifecycles_.insert(p.lifecycle_id).second)
+                if (!recordCompletedLifecycleLocked(p.lifecycle_id))
                 {
                     duplicate_events_.fetch_add(1, std::memory_order_relaxed);
                     return;
                 }
+
+                active_lifecycles_.erase(p.lifecycle_id);
 
                 rx_packets_.fetch_add(1, std::memory_order_relaxed);
                 rx_bytes_.fetch_add(p.payload_size, std::memory_order_relaxed);
@@ -64,11 +67,13 @@ namespace edgenetswitch
                           const auto drop = std::get<PacketDropped>(msg.payload);
 
                           std::lock_guard<std::mutex> lock(lifecycle_mutex_);
-                          if (!completed_lifecycles_.insert(drop.lifecycle_id).second)
+                          if (!recordCompletedLifecycleLocked(drop.lifecycle_id))
                           {
                               duplicate_events_.fetch_add(1, std::memory_order_relaxed);
                               return;
                           }
+
+                          active_lifecycles_.erase(drop.lifecycle_id);
 
                           drop_counters_[drop.reason].fetch_add(1, std::memory_order_relaxed);
                           terminal_events_.fetch_add(1, std::memory_order_relaxed);
@@ -84,7 +89,16 @@ namespace edgenetswitch
                               std::cerr << "[PacketStats] invalid PacketRx payload\n";
                               return;
                           }
-                          ingress_packets_.fetch_add(1, std::memory_order_relaxed);
+                          {
+                              std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+
+                              ingress_packets_.fetch_add(1, std::memory_order_relaxed);
+
+                              if (!isLifecycleCompletedLocked(p->lifecycle_id))
+                              {
+                                  active_lifecycles_.insert(p->lifecycle_id);
+                              }
+                          }
 
                           if (p->kernel_receive_realtime_ns)
                           {
@@ -108,24 +122,55 @@ namespace edgenetswitch
 
         bus.subscribe(MessageType::IngressIdlePoll, [this](const Message &msg)
                       { udp_drain_completions_.fetch_add(1, std::memory_order_relaxed); });
+
+        bus.subscribe(MessageType::ForwardingDecisionMade,
+                      [this](const Message &msg)
+                      {
+                          const auto *event = std::get_if<ForwardingEvent>(&msg.payload);
+
+                          if (!event)
+                          {
+                              return;
+                          }
+
+                          switch (event->action)
+                          {
+                          case ForwardingAction::Drop:
+                              forwarding_drop_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+
+                          case ForwardingAction::Flood:
+                              forwarding_flood_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+
+                          case ForwardingAction::ForwardToPorts:
+                              forwarding_forward_decisions_.fetch_add(1, std::memory_order_relaxed);
+                              break;
+                          }
+                      });
     }
 
     PacketMetrics PacketStats::snapshotAt(std::uint64_t now_ms) const
     {
-        const std::uint64_t current_packets = rx_packets_.load(std::memory_order_relaxed);
-        const std::uint64_t current_bytes = rx_bytes_.load(std::memory_order_relaxed);
-        const std::uint64_t ingress_packets = ingress_packets_.load(std::memory_order_relaxed);
-
+        std::uint64_t current_packets = 0;
+        std::uint64_t current_bytes = 0;
+        std::uint64_t ingress_packets = 0;
         std::uint64_t processed_packets = 0;
         std::uint64_t terminal_events = 0;
         std::uint64_t duplicate_events = 0;
+        std::uint64_t pending_terminal_events = 0;
+
         std::unordered_map<PacketDropReason, std::uint64_t> drop_snapshot;
 
         {
             std::lock_guard<std::mutex> lock(lifecycle_mutex_);
+            current_packets = rx_packets_.load(std::memory_order_relaxed);
+            current_bytes = rx_bytes_.load(std::memory_order_relaxed);
+            ingress_packets = ingress_packets_.load(std::memory_order_relaxed);
             processed_packets = processed_packets_.load(std::memory_order_relaxed);
             terminal_events = terminal_events_.load(std::memory_order_relaxed);
             duplicate_events = duplicate_events_.load(std::memory_order_relaxed);
+            pending_terminal_events = active_lifecycles_.size();
 
             for (const auto &[reason, counter] : drop_counters_)
             {
@@ -135,8 +180,6 @@ namespace edgenetswitch
 
         const std::uint64_t processing_gap =
             ingress_packets >= processed_packets ? ingress_packets - processed_packets : 0;
-        const std::uint64_t pending_terminal_events =
-            ingress_packets > terminal_events ? ingress_packets - terminal_events : 0;
 
         const auto total_latency = total_processing_latency_ns_.load(std::memory_order_relaxed);
         const auto max_latency = max_processing_latency_ns_.load(std::memory_order_relaxed);
@@ -156,28 +199,35 @@ namespace edgenetswitch
             average_latency = total_latency / latency_samples;
         }
 
-        return PacketMetrics{.rx_packets = current_packets,
-                             .rx_bytes = current_bytes,
-                             .rx_packets_per_sec = 0,
-                             .rx_bytes_per_sec = 0,
-                             .drops_by_reason = std::move(drop_snapshot),
-                             .rx_packets_per_sec_raw = 0,
-                             .rx_bytes_per_sec_raw = 0,
-                             .ingress_packets = ingress_packets,
-                             .processed_packets = processed_packets,
-                             .processing_gap = processing_gap,
-                             .terminal_events = terminal_events,
-                             .duplicate_events = duplicate_events,
-                             .pending_terminal_events = pending_terminal_events,
-                             .total_processing_latency_ns = total_latency,
-                             .max_processing_latency_ns = max_latency,
-                             .average_processing_latency_ns = average_latency,
-                             .latency_samples = latency_samples,
-                             .udp_drain_completions = udp_drain_completions,
-                             .last_kernel_receive_realtime_ns = last_kernel_receive_realtime_ns,
-                             .last_kernel_receive_drop_count = last_kernel_receive_drop_count,
-                             .last_kernel_to_userspace_receive_latency_ns =
-                                 last_kernel_to_userspace_receive_latency_ns};
+        return PacketMetrics{
+            .rx_packets = current_packets,
+            .rx_bytes = current_bytes,
+            .rx_packets_per_sec = 0,
+            .rx_bytes_per_sec = 0,
+            .drops_by_reason = std::move(drop_snapshot),
+            .rx_packets_per_sec_raw = 0,
+            .rx_bytes_per_sec_raw = 0,
+            .ingress_packets = ingress_packets,
+            .processed_packets = processed_packets,
+            .processing_gap = processing_gap,
+            .terminal_events = terminal_events,
+            .duplicate_events = duplicate_events,
+            .pending_terminal_events = pending_terminal_events,
+            .total_processing_latency_ns = total_latency,
+            .max_processing_latency_ns = max_latency,
+            .average_processing_latency_ns = average_latency,
+            .latency_samples = latency_samples,
+            .udp_drain_completions = udp_drain_completions,
+            .last_kernel_receive_realtime_ns = last_kernel_receive_realtime_ns,
+            .last_kernel_receive_drop_count = last_kernel_receive_drop_count,
+            .last_kernel_to_userspace_receive_latency_ns =
+                last_kernel_to_userspace_receive_latency_ns,
+            .forwarding_drop_decisions = forwarding_drop_decisions_.load(std::memory_order_relaxed),
+            .forwarding_flood_decisions =
+                forwarding_flood_decisions_.load(std::memory_order_relaxed),
+            .forwarding_forward_decisions =
+                forwarding_forward_decisions_.load(std::memory_order_relaxed),
+        };
     }
 
     std::uint64_t PacketStats::rxPackets() const
@@ -199,5 +249,77 @@ namespace edgenetswitch
         }
 
         return total;
+    }
+
+    bool PacketStats::isLifecycleCompletedLocked(std::uint64_t lifecycle_id) const
+    {
+        auto it = completed_lifecycle_ranges_.upper_bound(lifecycle_id);
+
+        if (it == completed_lifecycle_ranges_.begin())
+        {
+            return false;
+        }
+
+        --it;
+
+        return lifecycle_id <= it->second;
+    }
+
+    bool PacketStats::recordCompletedLifecycleLocked(std::uint64_t lifecycle_id)
+    {
+        auto next = completed_lifecycle_ranges_.lower_bound(lifecycle_id);
+
+        // The lifecycle ID already starts an existing completed range.
+        if (next != completed_lifecycle_ranges_.end() && next->first == lifecycle_id)
+        {
+            return false;
+        }
+
+        auto previous = completed_lifecycle_ranges_.end();
+
+        if (next != completed_lifecycle_ranges_.begin())
+        {
+            previous = std::prev(next);
+
+            // The lifecycle ID is already contained in the previous range.
+            if (lifecycle_id <= previous->second)
+            {
+                return false;
+            }
+        }
+
+        const bool merge_left = previous != completed_lifecycle_ranges_.end() &&
+                                previous->second != UINT64_MAX &&
+                                previous->second + 1 == lifecycle_id;
+
+        const bool merge_right = next != completed_lifecycle_ranges_.end() &&
+                                 lifecycle_id != UINT64_MAX && lifecycle_id + 1 == next->first;
+
+        if (merge_left && merge_right)
+        {
+            // Bridge two adjacent ranges: [1,5] + 6 + [7,10] -> [1,10].
+            previous->second = next->second;
+            completed_lifecycle_ranges_.erase(next);
+        }
+        else if (merge_left)
+        {
+            // Extend the previous range: [1,5] + 6 -> [1,6].
+            previous->second = lifecycle_id;
+        }
+        else if (merge_right)
+        {
+            // Extend the next range backwards: 4 + [5,10] -> [4,10].
+            const auto range_end = next->second;
+
+            completed_lifecycle_ranges_.erase(next);
+            completed_lifecycle_ranges_.emplace(lifecycle_id, range_end);
+        }
+        else
+        {
+            // Create a new standalone completed range.
+            completed_lifecycle_ranges_.emplace(lifecycle_id, lifecycle_id);
+        }
+
+        return true;
     }
 } // namespace edgenetswitch

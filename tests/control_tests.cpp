@@ -4,12 +4,20 @@
 #include "../src/runtime/SnapshotPublisher.hpp"
 
 #include "edgenetswitch/control/ControlContext.hpp"
-#include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/control/ControlProtocol.hpp"
+#include "edgenetswitch/control/ControlServer.hpp"
+#include "edgenetswitch/core/Config.hpp"
+#include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
+#include "edgenetswitch/packet/Packet.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <variant>
 #include <vector>
 
 namespace
@@ -35,10 +43,20 @@ namespace
         s.packet.rx_bytes = 202;
         s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ParseError] = 3;
         s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ValidationError] = 4;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::SimulatedLoss] = 5;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::ProcessingError] = 6;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::InternalError] = 7;
+        s.packet.drops_by_reason[edgenetswitch::PacketDropReason::Unknown] = 8;
         s.packet.rx_packets_per_sec = 55;
         s.packet.rx_bytes_per_sec = 66;
         s.packet.rx_packets_per_sec_raw = 77;
         s.packet.rx_bytes_per_sec_raw = 88;
+        s.packet.queue_depth = 17;
+        s.packet.queue_capacity = 1024;
+        s.packet.queue_high_water_mark = 63;
+        s.packet.forwarding_drop_decisions = 11;
+        s.packet.forwarding_flood_decisions = 23;
+        s.packet.forwarding_forward_decisions = 37;
         return s;
     }
 
@@ -217,12 +235,36 @@ TEST_CASE("JSON mode returns current command payloads", "[control][json]")
         CHECK(j["data"].contains("rx_packets"));
         CHECK(j["data"].contains("rx_bytes"));
         REQUIRE(j["data"].contains("drops"));
-        REQUIRE(j["data"]["drops"].contains("parse_error"));
-        REQUIRE(j["data"]["drops"].contains("validation_error"));
+        const auto &drops = j["data"]["drops"];
+        REQUIRE(drops.contains("parse_error"));
+        REQUIRE(drops.contains("validation_error"));
+        CHECK(drops.value("simulated_loss", 0) == 5);
+        CHECK(drops.value("processing_error", 0) == 6);
+        CHECK(drops.value("internal_error", 0) == 7);
+        CHECK(drops.value("unknown", 0) == 8);
         CHECK(j["data"].contains("rx_packets_per_sec"));
         CHECK(j["data"].contains("rx_bytes_per_sec"));
         CHECK(j["data"].contains("rx_packets_per_sec_raw"));
         CHECK(j["data"].contains("rx_bytes_per_sec_raw"));
+        const auto &data = j["data"];
+        REQUIRE(data.contains("queue_depth"));
+        REQUIRE(data.contains("queue_capacity"));
+        REQUIRE(data.contains("queue_high_water_mark"));
+        CHECK(data.at("queue_depth").is_number_unsigned());
+        CHECK(data.at("queue_capacity").is_number_unsigned());
+        CHECK(data.at("queue_high_water_mark").is_number_unsigned());
+        CHECK(data.at("queue_depth") == 17);
+        CHECK(data.at("queue_capacity") == 1024);
+        CHECK(data.at("queue_high_water_mark") == 63);
+        REQUIRE(data.contains("forwarding_drop_decisions"));
+        REQUIRE(data.contains("forwarding_flood_decisions"));
+        REQUIRE(data.contains("forwarding_forward_decisions"));
+        CHECK(data.at("forwarding_drop_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_flood_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_forward_decisions").is_number_unsigned());
+        CHECK(data.at("forwarding_drop_decisions") == 11);
+        CHECK(data.at("forwarding_flood_decisions") == 23);
+        CHECK(data.at("forwarding_forward_decisions") == 37);
     }
 
     SECTION("show-config json")
@@ -259,7 +301,12 @@ TEST_CASE("Text mode exposes key=value output", "[control][text]")
         {"metrics", {"uptime_ms=", "tick_count="}},
         {"version", {"version=", "protocol=", "build="}},
         {"help:version", {"command=", "description="}},
-        {"packet-stats", {"rx_packets=", "rx_bytes=", "drops_total="}},
+        {"packet-stats",
+         {"rx_packets=", "rx_bytes=", "\ndrops_simulated_loss=5\n", "\ndrops_processing_error=6\n",
+          "\ndrops_internal_error=7\n", "\ndrops_unknown=8\n", "\ndrops_total=33\n",
+          "\nqueue_depth=17\n", "\nqueue_capacity=1024\n", "\nqueue_high_water_mark=63\n",
+          "\nforwarding_drop_decisions=11\n", "\nforwarding_flood_decisions=23\n",
+          "\nforwarding_forward_decisions=37\n"}},
         {"show-config",
          {"log.level=", "daemon.tick_ms=", "udp.endpoint.switch_port=", "rate.window_ms="}},
     };
@@ -357,4 +404,89 @@ TEST_CASE("show-config exposes configured fields in text and json modes", "[cont
         CHECK(j["data"]["rate"].contains("alpha"));
         CHECK(j["data"]["rate"].contains("window_ms"));
     }
+}
+
+TEST_CASE("Repeated broadcast injection assigns distinct lifecycle IDs", "[control][dispatch]")
+{
+    using namespace edgenetswitch;
+
+    std::vector<Packet> packets;
+    MessagingBus bus;
+    bus.subscribe(MessageType::PacketRx, [&](const Message &message)
+                  { packets.push_back(std::get<Packet>(message.payload)); });
+    LifecycleIdGenerator lifecycle_generator;
+    const ControlContext ctx{
+        .bus = &bus,
+        .lifecycle_generator = &lifecycle_generator,
+    };
+
+    const auto first = dispatch("send-packet:broadcast", ctx);
+    REQUIRE(first.success);
+    REQUIRE(packets.size() == 1);
+
+    const auto second = dispatch("send-packet:broadcast", ctx);
+    REQUIRE(second.success);
+    REQUIRE(packets.size() == 2);
+
+    CHECK(packets[0].id == 999);
+    CHECK(packets[1].id == 999);
+    CHECK(packets[0].lifecycle_id != packets[1].lifecycle_id);
+
+    const auto first_json = nlohmann::json::parse(first.payload);
+    const auto second_json = nlohmann::json::parse(second.payload);
+    CHECK(first_json.at("data").at("lifecycle_id") == packets[0].lifecycle_id);
+    CHECK(second_json.at("data").at("lifecycle_id") == packets[1].lifecycle_id);
+}
+
+TEST_CASE("Control server rejects packet injection after closing admission", "[control][server]")
+{
+    using namespace edgenetswitch;
+
+    FileDescriptor listener(::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
+    REQUIRE(listener.valid());
+
+    // Binding only the address family lets Linux assign a unique abstract socket name.
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    auto *socket_address = reinterpret_cast<sockaddr *>(&address);
+    REQUIRE(::bind(listener.get(), socket_address, sizeof(address.sun_family)) == 0);
+    REQUIRE(::listen(listener.get(), 1) == 0);
+    socklen_t address_length = sizeof(address);
+    REQUIRE(::getsockname(listener.get(), socket_address, &address_length) == 0);
+
+    daemon::SnapshotPublisher publisher;
+    const auto config = makeDeterministicConfig();
+    int packet_rx_count = 0;
+    MessagingBus bus;
+    bus.subscribe(MessageType::PacketRx, [&](const Message &) { ++packet_rx_count; });
+    MacTable mac_table{1};
+    InterfaceRegistry interfaces;
+    SwitchForwardingEngine forwarding_engine(mac_table, interfaces);
+    FdRegistry fd_registry;
+    EpollManager epoll_manager(&fd_registry);
+    EpollEventLoop epoll_loop(epoll_manager, &fd_registry);
+    LifecycleIdGenerator lifecycle_generator;
+    IngressManager ingress_manager(bus, lifecycle_generator, epoll_manager, epoll_loop,
+                                   fd_registry);
+    transport::TransportManager transport_manager;
+    control::ControlServer server(listener, publisher, config, bus, forwarding_engine, fd_registry,
+                                  transport_manager, ingress_manager, lifecycle_generator);
+
+    const auto submit_command = [&]
+    {
+        FileDescriptor client(::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
+        REQUIRE(client.valid());
+        REQUIRE(::connect(client.get(), socket_address, address_length) == 0);
+        constexpr std::string_view request = "1.2|send-packet:broadcast\n";
+        REQUIRE(::send(client.get(), request.data(), request.size(), 0) ==
+                static_cast<ssize_t>(request.size()));
+        server.processReadableEvent();
+    };
+
+    submit_command();
+    REQUIRE(packet_rx_count == 1);
+
+    server.closeAdmission();
+    submit_command();
+    CHECK(packet_rx_count == 1);
 }

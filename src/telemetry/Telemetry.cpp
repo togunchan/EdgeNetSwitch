@@ -1,7 +1,6 @@
 #include "edgenetswitch/telemetry/Telemetry.hpp"
 
 #include <chrono>
-#include <variant>
 #include <cstdint>
 
 namespace edgenetswitch

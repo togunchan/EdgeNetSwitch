@@ -6,6 +6,7 @@
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/transport/TransmitResult.hpp"
 
+#include <atomic>
 #include <utility>
 
 namespace edgenetswitch
@@ -81,8 +82,9 @@ namespace edgenetswitch
             {
                 const Packet *packet = std::get_if<Packet>(&msg.payload);
 
-                if (!packet)
+                if (!packet || !running_.load(std::memory_order_relaxed))
                     return;
+
                 const auto now_ms = nowMs();
                 auto failure = injector_.inject(*packet, now_ms);
 
@@ -101,6 +103,12 @@ namespace edgenetswitch
                 bool shouldDrop = false;
                 {
                     std::lock_guard<std::mutex> lock(queue_mutex_);
+
+                    if (!running_.load(std::memory_order_relaxed))
+                    {
+                        return;
+                    }
+
                     if (queue_.size() >= MAX_QUEUE_SIZE)
                     {
                         shouldDrop = true;
@@ -108,6 +116,11 @@ namespace edgenetswitch
                     else
                     {
                         queue_.push_back(*packet);
+
+                        if (queue_.size() > queue_high_water_mark_)
+                        {
+                            queue_high_water_mark_ = queue_.size();
+                        }
                     }
                 }
 
@@ -134,7 +147,16 @@ namespace edgenetswitch
 
     PacketProcessor::~PacketProcessor()
     {
-        running_.store(false, std::memory_order_relaxed);
+        stop();
+    }
+
+    void PacketProcessor::stop()
+    {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            running_.store(false, std::memory_order_relaxed);
+        }
+
         cv_.notify_all();
         if (worker_.joinable())
             worker_.join();
@@ -153,7 +175,10 @@ namespace edgenetswitch
                          [this]
                          {
                              // Continue waiting only while queue is empty AND system is running.
-                             return !queue_.empty() || !running_;
+                             const bool work_available = !queue_.empty();
+                             const bool stop_requested = !work_available && !running_;
+
+                             return work_available || stop_requested;
                          });
 
                 if (!running_ && queue_.empty())
@@ -273,6 +298,23 @@ namespace edgenetswitch
                                         .lifecycle_id = pkt.lifecycle_id};
 
         bus_.publish(std::move(dropMsg));
+    }
+
+    std::size_t PacketProcessor::queueDepth() const
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        return queue_.size();
+    }
+
+    std::size_t PacketProcessor::queueCapacity() const noexcept
+    {
+        return MAX_QUEUE_SIZE;
+    }
+
+    std::size_t PacketProcessor::queueHighWaterMark() const
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        return queue_high_water_mark_;
     }
 
 } // namespace edgenetswitch

@@ -3,12 +3,14 @@
 #include "edgenetswitch/control/ControlProtocol.hpp"
 #include "edgenetswitch/core/Config.hpp"
 #include "edgenetswitch/messaging/MessagingBus.hpp"
+#include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
 #include "edgenetswitch/runtime/IngressManager.hpp"
 #include "edgenetswitch/switching/SwitchForwardingEngine.hpp"
 #include "edgenetswitch/system/fd/FdRegistry.hpp"
 #include "edgenetswitch/system/fd/FileDescriptor.hpp"
 #include "edgenetswitch/transport/TransportManager.hpp"
 #include "runtime/SnapshotPublisher.hpp"
+#include <atomic>
 
 namespace edgenetswitch::control
 {
@@ -19,12 +21,13 @@ namespace edgenetswitch::control
                       const core::Config &config, MessagingBus &bus,
                       SwitchForwardingEngine &forwarding_engine, FdRegistry &fd_registry,
                       edgenetswitch::transport::TransportManager &transport_manager,
-                      IngressManager &ingress_manager);
+                      IngressManager &ingress_manager, LifecycleIdGenerator &lifecycle_generator);
 
         [[nodiscard]]
         int fd() const noexcept;
 
         void processReadableEvent();
+        void closeAdmission() noexcept;
 
     private:
         void handleClient(int client_fd);
@@ -38,5 +41,7 @@ namespace edgenetswitch::control
         FdRegistry &fd_registry_;
         edgenetswitch::transport::TransportManager &transport_manager_;
         IngressManager &ingress_manager_;
+        std::atomic<bool> accepting_{true};
+        LifecycleIdGenerator &lifecycle_generator_;
     };
 } // namespace edgenetswitch::control

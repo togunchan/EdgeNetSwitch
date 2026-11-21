@@ -1,6 +1,6 @@
 #pragma once
 
-#include "edgenetswitch/telemetry/Telemetry.hpp"
+#include "edgenetswitch/runtime/RuntimeMetrics.hpp"
 
 namespace edgenetswitch
 {

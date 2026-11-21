@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -33,7 +34,13 @@ namespace edgenetswitch
         std::uint64_t udp_drain_completions{0};
         std::uint64_t last_kernel_receive_realtime_ns{0};
         std::uint32_t last_kernel_receive_drop_count{0};
-        std::uint64_t last_kernel_to_userspace_receive_latency_ns{0};
+        std::uint64_t last_kernel_to_userspace_receive_latency_ns;
+        std::uint64_t queue_depth{0};
+        std::uint64_t queue_capacity{0};
+        std::uint64_t queue_high_water_mark{0};
+        std::uint64_t forwarding_drop_decisions{0};
+        std::uint64_t forwarding_flood_decisions{0};
+        std::uint64_t forwarding_forward_decisions{0};
     };
 
     class PacketStats
@@ -53,6 +60,9 @@ namespace edgenetswitch
         void onTerminal(uint64_t lifecycle_id);
 
     private:
+        bool isLifecycleCompletedLocked(std::uint64_t lifecycle_id) const;
+        bool recordCompletedLifecycleLocked(std::uint64_t lifecycle_id);
+
         std::atomic<std::uint64_t> rx_packets_{0};
         std::atomic<std::uint64_t> rx_bytes_{0};
         std::unordered_map<PacketDropReason, std::atomic<uint64_t>> drop_counters_;
@@ -60,7 +70,8 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> processed_packets_{0};
         std::atomic<std::uint64_t> terminal_events_{0};
         std::atomic<std::uint64_t> duplicate_events_{0};
-        std::unordered_set<uint64_t> completed_lifecycles_;
+        std::unordered_set<uint64_t> active_lifecycles_;
+        std::map<std::uint64_t, std::uint64_t> completed_lifecycle_ranges_;
         mutable std::mutex lifecycle_mutex_;
         std::atomic_uint64_t total_processing_latency_ns_{0};
         std::atomic_uint64_t max_processing_latency_ns_{0};
@@ -69,6 +80,9 @@ namespace edgenetswitch
         std::atomic<std::uint64_t> last_kernel_receive_realtime_ns_{0};
         std::atomic<std::uint32_t> last_kernel_receive_drop_count_{0};
         std::atomic<std::uint64_t> last_kernel_to_userspace_receive_latency_ns_{0};
+        std::atomic<std::uint64_t> forwarding_drop_decisions_{0};
+        std::atomic<std::uint64_t> forwarding_flood_decisions_{0};
+        std::atomic<std::uint64_t> forwarding_forward_decisions_{0};
     };
 
 } // namespace edgenetswitch

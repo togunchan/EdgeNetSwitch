@@ -3,6 +3,7 @@
 #include "edgenetswitch/switching/MacTableEntry.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 
 namespace edgenetswitch
@@ -11,6 +12,7 @@ namespace edgenetswitch
 
     void MacTable::learn(const MacAddress &mac, std::uint32_t port_id, std::uint64_t tick)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
 
         if (capacity_ == 0)
             return;
@@ -46,6 +48,8 @@ namespace edgenetswitch
 
     std::optional<std::uint32_t> MacTable::lookup(const MacAddress &mac) const
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+
         auto it = entries_.find(mac);
 
         if (it == entries_.end())
@@ -56,6 +60,8 @@ namespace edgenetswitch
 
     void MacTable::ageOut(std::uint64_t current_tick, std::uint64_t max_age)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+
         auto it = entries_.begin();
 
         while (it != entries_.end())
@@ -73,7 +79,10 @@ namespace edgenetswitch
 
     std::vector<MacTableEntry> MacTable::snapshot() const
     {
+        std::lock_guard<std::mutex> lock(mutex_);
+
         std::vector<MacTableEntry> snapshot;
+        snapshot.reserve(entries_.size());
 
         for (const auto &entry_pair : entries_)
         {
@@ -83,8 +92,9 @@ namespace edgenetswitch
         return snapshot;
     }
 
-    std::size_t MacTable::size() const noexcept
+    std::size_t MacTable::size() const
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         return entries_.size();
     }
 

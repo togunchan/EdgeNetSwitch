@@ -1,4 +1,4 @@
-#include "InMemoryTelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/InMemoryTelemetryExporter.hpp"
 
 namespace edgenetswitch::telemetry
 {

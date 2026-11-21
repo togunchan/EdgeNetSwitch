@@ -1,12 +1,18 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "lifecycle_test_support.hpp"
+
 #include "edgenetswitch/messaging/MessagingBus.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
+#include "edgenetswitch/switching/ForwardingEvent.hpp"
 
 #include <atomic>
+#include <initializer_list>
 #include <thread>
 #include <unistd.h>
+#include <variant>
+#include <vector>
 
 using namespace edgenetswitch;
 
@@ -49,6 +55,101 @@ namespace
     };
 } // namespace
 
+TEST_CASE("PacketStats counts each forwarding action independently", "[PacketPipeline][Forwarding]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    const auto initial = stats.snapshotAt(now_ms);
+    CHECK(initial.forwarding_drop_decisions == 0);
+    CHECK(initial.forwarding_flood_decisions == 0);
+    CHECK(initial.forwarding_forward_decisions == 0);
+
+    const auto publish_and_check = [&](ForwardingAction action, std::uint64_t expected_drop,
+                                       std::uint64_t expected_flood, std::uint64_t expected_forward)
+    {
+        bus.publish(Message{.type = MessageType::ForwardingDecisionMade,
+                            .timestamp_ms = now_ms,
+                            .payload = ForwardingEvent{.lifecycle_id = 1, .action = action}});
+
+        const auto metrics = stats.snapshotAt(now_ms);
+        CHECK(metrics.forwarding_drop_decisions == expected_drop);
+        CHECK(metrics.forwarding_flood_decisions == expected_flood);
+        CHECK(metrics.forwarding_forward_decisions == expected_forward);
+        CHECK(metrics.drops_by_reason == initial.drops_by_reason);
+        CHECK(metrics.terminal_events == initial.terminal_events);
+        CHECK(metrics.processed_packets == initial.processed_packets);
+    };
+
+    publish_and_check(ForwardingAction::Drop, 1, 0, 0);
+    publish_and_check(ForwardingAction::Flood, 1, 1, 0);
+    publish_and_check(ForwardingAction::ForwardToPorts, 1, 1, 1);
+}
+
+TEST_CASE("Forwarding Drop leaves packet accounting open until a separate terminal event",
+          "[PacketPipeline][Forwarding]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+    const Packet packet{.lifecycle_id = 1, .payload = "forwarding drop", .timestamp_ms = now_ms};
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = packet});
+    const auto before = stats.snapshotAt(now_ms);
+    REQUIRE(before.pending_terminal_events == 1);
+
+    bus.publish(Message{.type = MessageType::ForwardingDecisionMade,
+                        .timestamp_ms = now_ms,
+                        .payload = ForwardingEvent{.lifecycle_id = packet.lifecycle_id,
+                                                   .action = ForwardingAction::Drop}});
+
+    const auto decision = stats.snapshotAt(now_ms);
+    CHECK(decision.forwarding_drop_decisions == 1);
+    CHECK(decision.forwarding_flood_decisions == 0);
+    CHECK(decision.forwarding_forward_decisions == 0);
+    CHECK(decision.drops_by_reason == before.drops_by_reason);
+    CHECK(decision.terminal_events == before.terminal_events);
+    CHECK(decision.processed_packets == before.processed_packets);
+    CHECK(decision.pending_terminal_events == 1);
+
+    SECTION("PacketProcessed terminates a forwarding drop without a packet drop")
+    {
+        bus.publish(Message{.type = MessageType::PacketProcessed,
+                            .timestamp_ms = now_ms,
+                            .payload = packet});
+
+        const auto processed = stats.snapshotAt(now_ms);
+        CHECK(processed.processed_packets == before.processed_packets + 1);
+        CHECK(processed.drops_by_reason == before.drops_by_reason);
+    }
+
+    SECTION("Only an explicit PacketDropped records a packet drop")
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = PacketDropReason::ProcessingError,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = packet.lifecycle_id}});
+
+        const auto dropped = stats.snapshotAt(now_ms);
+        CHECK(dropped.processed_packets == before.processed_packets);
+        REQUIRE(dropped.drops_by_reason.contains(PacketDropReason::ProcessingError));
+        CHECK(dropped.drops_by_reason.at(PacketDropReason::ProcessingError) == 1);
+        CHECK(dropsTotal(dropped) == 1);
+    }
+
+    const auto terminal = stats.snapshotAt(now_ms);
+    CHECK(terminal.terminal_events == before.terminal_events + 1);
+    CHECK(terminal.pending_terminal_events == 0);
+    CHECK(terminal.duplicate_events == 0);
+    CHECK(terminal.forwarding_drop_decisions == 1);
+    CHECK(terminal.forwarding_flood_decisions == 0);
+    CHECK(terminal.forwarding_forward_decisions == 0);
+}
+
 TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics",
           "[PacketPipeline]")
 {
@@ -84,6 +185,64 @@ TEST_CASE("PacketProcessor emits PacketProcessed and PacketStats updates metrics
     REQUIRE(processedCount.load(std::memory_order_relaxed) == 1);
     REQUIRE(metrics.rx_packets == 1);
     REQUIRE(metrics.rx_bytes == packet.payload.size());
+}
+
+TEST_CASE("PacketProcessor reports queue depth, capacity, and high-water mark", "[PacketPipeline]")
+{
+    lifecycle_test::Gate worker_gate;
+    bool peak_preserved_during_drain = true;
+    PacketPipelineFixture fixture;
+    lifecycle_test::ReleaseGateOnExit release{worker_gate};
+    auto &processor = fixture.processor;
+    const auto capacity = processor.queueCapacity();
+
+    REQUIRE(capacity > 1);
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == 0);
+
+    // Hold the worker after its first dequeue so subsequent admissions can fill the queue.
+    fixture.bus.subscribe(MessageType::PacketProcessed,
+                          [&, capacity](const Message &)
+                          {
+                              worker_gate.arriveAndWait();
+                              peak_preserved_during_drain &=
+                                  fixture.processor.queueHighWaterMark() == capacity;
+                          });
+
+    Message message{
+        .type = MessageType::PacketRx,
+        .timestamp_ms = 1,
+        .payload = Packet{.lifecycle_id = 1, .payload = "queue visibility", .timestamp_ms = 1}};
+    auto &packet = std::get<Packet>(message.payload);
+    fixture.bus.publish(message);
+    REQUIRE(worker_gate.waitForArrival());
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == 1);
+
+    for (std::size_t depth = 1; depth <= capacity; ++depth)
+    {
+        ++packet.lifecycle_id;
+        fixture.bus.publish(message);
+        REQUIRE(processor.queueDepth() == depth);
+        CHECK(processor.queueHighWaterMark() == depth);
+    }
+
+    const auto peak = processor.queueDepth();
+    ++packet.lifecycle_id;
+    fixture.bus.publish(message);
+    CHECK(processor.queueDepth() == capacity);
+    CHECK(processor.queueHighWaterMark() == peak);
+
+    worker_gate.release();
+    processor.stop();
+
+    const auto metrics = fixture.stats.snapshotAt(1);
+    REQUIRE(metrics.drops_by_reason.contains(PacketDropReason::QueueOverflow));
+    CHECK(metrics.drops_by_reason.at(PacketDropReason::QueueOverflow) == 1);
+    CHECK(metrics.processed_packets == capacity + 1);
+    CHECK(peak_preserved_during_drain);
+    CHECK(processor.queueDepth() == 0);
+    CHECK(processor.queueHighWaterMark() == peak);
 }
 
 TEST_CASE("Packet pipeline accumulates metrics across multiple packets", "[PacketPipeline]")
@@ -170,6 +329,166 @@ TEST_CASE("PacketProcessor ignores invalid payload", "[PacketPipeline]")
     REQUIRE(metrics.pending_terminal_events == 0);
     REQUIRE(metrics.rx_packets == 0);
     REQUIRE(metrics.rx_bytes == 0);
+}
+
+TEST_CASE("Unrelated terminal drops leave open packet lifecycles pending", "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+    constexpr std::uint64_t active_id = 1;
+    constexpr std::uint64_t terminal_only_id = 2;
+    constexpr auto reason = PacketDropReason::ValidationError;
+
+    const auto publish_drop = [&](std::uint64_t lifecycle_id)
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = reason,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = lifecycle_id}});
+    };
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = active_id, .timestamp_ms = now_ms}});
+    REQUIRE(stats.snapshotAt(now_ms).pending_terminal_events == 1);
+
+    publish_drop(terminal_only_id);
+    const auto before_duplicate = stats.snapshotAt(now_ms);
+    CHECK(before_duplicate.ingress_packets == 1);
+    CHECK(before_duplicate.terminal_events == 1);
+    CHECK(before_duplicate.drops_by_reason.at(reason) == 1);
+    CHECK(before_duplicate.duplicate_events == 0);
+    CHECK(before_duplicate.pending_terminal_events == 1);
+
+    publish_drop(terminal_only_id);
+    const auto after_duplicate = stats.snapshotAt(now_ms);
+    CHECK(after_duplicate.duplicate_events == before_duplicate.duplicate_events + 1);
+    CHECK(after_duplicate.ingress_packets == before_duplicate.ingress_packets);
+    CHECK(after_duplicate.processed_packets == before_duplicate.processed_packets);
+    CHECK(after_duplicate.terminal_events == before_duplicate.terminal_events);
+    CHECK(after_duplicate.drops_by_reason == before_duplicate.drops_by_reason);
+    CHECK(after_duplicate.pending_terminal_events == before_duplicate.pending_terminal_events);
+    CHECK(after_duplicate.processing_gap == before_duplicate.processing_gap);
+
+    publish_drop(active_id);
+    const auto completed = stats.snapshotAt(now_ms);
+    CHECK(completed.pending_terminal_events == 0);
+    CHECK(completed.terminal_events == 2);
+    CHECK(completed.drops_by_reason.at(reason) == 2);
+    CHECK(completed.duplicate_events == 1);
+    CHECK(completed.processing_gap == 1);
+}
+
+TEST_CASE("PacketRx leaves no pending lifecycle when an earlier subscriber drops it",
+          "[PacketPipeline]")
+{
+    MessagingBus bus;
+    // Match the daemon's callback order when the processor reports queue overflow inline.
+    bus.subscribe(
+        MessageType::PacketRx,
+        [&](const Message &message)
+        {
+            const auto &packet = std::get<Packet>(message.payload);
+            bus.publish(Message{.type = MessageType::PacketDropped,
+                                .timestamp_ms = message.timestamp_ms,
+                                .payload = PacketDropped{.reason = PacketDropReason::QueueOverflow,
+                                                         .timestamp_ms = message.timestamp_ms,
+                                                         .lifecycle_id = packet.lifecycle_id}});
+        });
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = 1, .timestamp_ms = now_ms}});
+
+    const auto metrics = stats.snapshotAt(now_ms);
+    CHECK(metrics.ingress_packets == 1);
+    CHECK(metrics.terminal_events == 1);
+    CHECK(metrics.drops_by_reason.at(PacketDropReason::QueueOverflow) == 1);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
+}
+
+TEST_CASE("Completed lifecycles remain duplicates after bridging or extending a range",
+          "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    const auto publish_drop = [&](std::uint64_t lifecycle_id)
+    {
+        bus.publish(Message{.type = MessageType::PacketDropped,
+                            .timestamp_ms = now_ms,
+                            .payload = PacketDropped{.reason = PacketDropReason::ValidationError,
+                                                     .timestamp_ms = now_ms,
+                                                     .lifecycle_id = lifecycle_id}});
+    };
+
+    const auto check_duplicates = [&](std::initializer_list<std::uint64_t> lifecycle_ids)
+    {
+        std::uint64_t terminal_count = 0;
+        for (const auto id : lifecycle_ids)
+        {
+            CAPTURE(id);
+            publish_drop(id);
+            ++terminal_count;
+            const auto metrics = stats.snapshotAt(now_ms);
+            CHECK(metrics.terminal_events == terminal_count);
+            CHECK(metrics.duplicate_events == 0);
+        }
+
+        std::uint64_t duplicate_count = 0;
+        for (const auto id : lifecycle_ids)
+        {
+            CAPTURE(id);
+            publish_drop(id);
+            ++duplicate_count;
+            const auto metrics = stats.snapshotAt(now_ms);
+            CHECK(metrics.terminal_events == terminal_count);
+            CHECK(metrics.duplicate_events == duplicate_count);
+            CHECK(dropsTotal(metrics) == terminal_count);
+        }
+    };
+
+    SECTION("Bridge two ranges")
+    {
+        check_duplicates({1, 3, 2});
+    }
+
+    SECTION("Extend the range on the left")
+    {
+        check_duplicates({10, 11});
+    }
+
+    SECTION("Extend the range on the right")
+    {
+        check_duplicates({21, 20});
+    }
+}
+
+TEST_CASE("PacketRx inside a completed lifecycle range leaves no pending event", "[PacketPipeline]")
+{
+    MessagingBus bus;
+    PacketStats stats(bus);
+    constexpr std::uint64_t now_ms = 1000;
+
+    stats.onTerminal(30);
+    stats.onTerminal(32);
+    stats.onTerminal(31);
+
+    bus.publish(Message{.type = MessageType::PacketRx,
+                        .timestamp_ms = now_ms,
+                        .payload = Packet{.lifecycle_id = 31, .timestamp_ms = now_ms}});
+
+    const auto metrics = stats.snapshotAt(now_ms);
+    CHECK(metrics.ingress_packets == 1);
+    CHECK(metrics.terminal_events == 3);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
 }
 
 TEST_CASE("Packet lifecycle reaches terminal state under normal processing", "[PacketPipeline]")
@@ -581,6 +900,84 @@ TEST_CASE("processing rejection failure maps to processing error drop reason",
     REQUIRE(processing_error_it != metrics.drops_by_reason.end());
     REQUIRE(processing_error_it->second == packet_count);
     REQUIRE(dropsTotal(metrics) == packet_count);
+}
+
+TEST_CASE("PacketProcessor processes a valid packet after an injected terminal failure",
+          "[PacketPipeline][FailureInjection][Recovery]")
+{
+    using failure::FailureType;
+    FailureType type = FailureType::None;
+    PacketDropReason reason = PacketDropReason::InternalError;
+    SECTION("MalformedPacket")
+    {
+        type = FailureType::MalformedPacket;
+        reason = PacketDropReason::ParseError;
+    }
+    SECTION("ValidationError")
+    {
+        type = FailureType::ValidationError;
+        reason = PacketDropReason::ValidationError;
+    }
+    SECTION("ProcessingRejection")
+    {
+        type = FailureType::ProcessingRejection;
+        reason = PacketDropReason::ProcessingError;
+    }
+
+    MessagingBus bus;
+    PacketStats stats(bus);
+    std::vector<PacketDropped> dropped;
+    std::vector<Packet> processed;
+    lifecycle_test::Gate processed_gate;
+    // Only lifecycle 1 fails. The following packet uses the same, unchanged injector.
+    const failure::FailureConfig config{.enabled = true,
+                                        .lifecycle_rules = {{.lifecycle_id = 1, .type = type}}};
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{config});
+    lifecycle_test::ReleaseGateOnExit release{processed_gate};
+    bus.subscribe(MessageType::PacketDropped, [&](const Message &message)
+                  { dropped.push_back(std::get<PacketDropped>(message.payload)); });
+    bus.subscribe(MessageType::PacketProcessed,
+                  [&](const Message &message)
+                  {
+                      processed.push_back(std::get<Packet>(message.payload));
+                      processed_gate.arriveAndWait();
+                  });
+
+    Packet packet{};
+    packet.id = 9001;
+    packet.lifecycle_id = 1;
+    packet.timestamp_ms = 1;
+    packet.payload = "injected failure followed by recovery";
+    bus.publish(Message{.type = MessageType::PacketRx, .timestamp_ms = 1, .payload = packet});
+    // Terminal injection is synchronous: establish the failure before admitting recovery work.
+    REQUIRE(dropped.size() == 1);
+    CHECK(dropped.front().reason == reason);
+    CHECK(dropped.front().packet_id == packet.id);
+    CHECK(dropped.front().lifecycle_id == packet.lifecycle_id);
+
+    packet.id = 9002;
+    packet.lifecycle_id = 2;
+    bus.publish(Message{.type = MessageType::PacketRx, .timestamp_ms = 1, .payload = packet});
+    // A condition-variable acknowledgement proves the live worker reached PacketProcessed.
+    REQUIRE(processed_gate.waitForArrival());
+    processed_gate.release();
+    processor.stop();
+
+    REQUIRE(dropped.size() == 1);
+    REQUIRE(processed.size() == 1);
+    CHECK(processed.front().id == packet.id);
+    CHECK(processed.front().lifecycle_id == packet.lifecycle_id);
+    CHECK(processed.front().payload == packet.payload);
+    CHECK(processor.queueDepth() == 0);
+    const auto metrics = stats.snapshotAt(1);
+    CHECK(metrics.ingress_packets == 2);
+    CHECK(metrics.processed_packets == 1);
+    CHECK(metrics.terminal_events == 2);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
+    CHECK(dropsTotal(metrics) == 1);
+    REQUIRE(metrics.drops_by_reason.contains(reason));
+    CHECK(metrics.drops_by_reason.at(reason) == 1);
 }
 
 TEST_CASE("each lifecycle produces exactly one terminal event",

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TelemetryExporter.hpp"
+#include "edgenetswitch/telemetry/TelemetryExporter.hpp"
 
 #include <fstream>
 #include <mutex>

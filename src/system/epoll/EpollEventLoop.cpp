@@ -15,9 +15,8 @@ namespace edgenetswitch
 
     void EpollEventLoop::run()
     {
-        running_.store(true, std::memory_order_relaxed);
 
-        while (running_.load(std::memory_order_acquire))
+        while (!stop_requested_.load(std::memory_order_acquire))
         {
             const auto events = epoll_.wait(1000);
 
@@ -37,9 +36,9 @@ namespace edgenetswitch
 
     void EpollEventLoop::stop()
     {
-        const bool was_running = running_.exchange(false, std::memory_order_acq_rel);
+        const bool already_requested = stop_requested_.exchange(true, std::memory_order_acq_rel);
 
-        if (was_running)
+        if (!already_requested)
         {
             shutdown_event_.notify();
         }

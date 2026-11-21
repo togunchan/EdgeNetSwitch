@@ -497,11 +497,20 @@ if(BUILD_TESTING)
 
     add_executable(SnapshotPublisherTests
         tests/snapshot_publisher_tests.cpp
+        src/runtime/RuntimeStatusBuilder.cpp
         src/runtime/SnapshotPublisher.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
     )
 
     target_link_libraries(SnapshotPublisherTests
         PRIVATE
+            Telemetry
+            HealthMonitor
+            MessagingBus
+            FailureInjection
+            Switching
             Catch2::Catch2WithMain
     )
 
@@ -566,6 +575,52 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
+# Unit Tests for runtime lifetime and shutdown contracts
+# -------------------------------------------------------
+
+# Lifecycle probes use POSIX subprocesses so a crash/hang cannot take down Catch2.
+if(BUILD_TESTING AND UNIX)
+
+    add_executable(TelemetryExportManagerTests
+        tests/telemetry_lifecycle_tests.cpp
+    )
+
+    target_link_libraries(TelemetryExportManagerTests
+        PRIVATE
+            Telemetry
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(TelemetryExportManagerTests PRIVATE include)
+    add_test(NAME TelemetryExportManagerTests COMMAND TelemetryExportManagerTests)
+
+    add_executable(PacketRuntimeLifecycleTests
+        tests/packet_runtime_lifecycle_tests.cpp
+        src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
+        src/transport/TransportManager.cpp
+    )
+
+    target_link_libraries(PacketRuntimeLifecycleTests
+        PRIVATE
+            MessagingBus
+            FailureInjection
+            Switching
+            Logger
+            Catch2::Catch2WithMain
+    )
+
+    target_include_directories(PacketRuntimeLifecycleTests PRIVATE include)
+    add_test(NAME PacketRuntimeLifecycleTests COMMAND PacketRuntimeLifecycleTests)
+
+    # Each child has its own shorter alarm; this also bounds harness failures.
+    set_tests_properties(TelemetryExportManagerTests PacketRuntimeLifecycleTests
+        PROPERTIES TIMEOUT 45
+    )
+
+endif()
+
+# -------------------------------------------------------
 # Unit Tests for packet forwarding runtime and transport manager integration
 # -------------------------------------------------------
 if(BUILD_TESTING)
@@ -575,6 +630,7 @@ if(BUILD_TESTING)
         src/network/UdpReceiver.cpp
         src/packet/PacketParser.cpp
         src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
         src/packet/PacketValidator.cpp
         src/system/fd/FileDescriptor.cpp
         src/system/fd/FdRegistry.cpp
@@ -688,16 +744,18 @@ if(BUILD_TESTING)
 endif()
 
 # -------------------------------------------------------
-# Unit Tests for EpollManager and EventFd integration
+# Unit Tests for epoll integration and event loop lifecycle
 # -------------------------------------------------------
 if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
     add_executable(EpollManagerTests
         tests/epoll_manager_tests.cpp
+        src/system/epoll/EpollEventLoop.cpp
         src/system/epoll/EpollManager.cpp
         src/system/event_source/EventFd.cpp
         src/system/fd/FileDescriptor.cpp
         src/system/fd/FdRegistry.cpp
+        src/system/wakeup/ShutdownWakeupHandler.cpp
     )
 
     target_link_libraries(EpollManagerTests
@@ -717,13 +775,14 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # -------------------------------------------------------
-# Unit Tests for Control dispatch
+# Unit Tests for control dispatch and server admission
 # -------------------------------------------------------
 if(BUILD_TESTING)
 
     add_executable(ControlTests
         tests/control_tests.cpp
         src/control/ControlDispatch.cpp
+        src/control/ControlServer.cpp
         src/network/UdpReceiver.cpp
         src/packet/PacketParser.cpp
         src/packet/PacketValidator.cpp
