@@ -48,6 +48,7 @@ namespace edgenetswitch::control
         {
             nlohmann::json j;
             j["state"] = stateToString(snap->state);
+            j["operational_health"] = operationalHealthToString(snap->operational_health);
             j["uptime_ms"] = snap->metrics.uptime_ms;
             j["tick_count"] = snap->metrics.tick_count;
             j["snapshot_version"] = snap->snapshot_version;
@@ -56,13 +57,17 @@ namespace edgenetswitch::control
             return makeJsonSuccess(j);
         }
 
-        return ControlResponse{
-            .success = true,
-            .payload = "state=" + stateToString(snap->state) + "\n" +
-                       "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n" +
-                       "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n" +
-                       "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n" +
-                       "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms)};
+        std::string payload;
+
+        payload += "state=" + stateToString(snap->state) + "\n";
+        payload +=
+            "operational_health=" + operationalHealthToString(snap->operational_health) + "\n";
+        payload += "uptime_ms=" + std::to_string(snap->metrics.uptime_ms) + "\n";
+        payload += "tick_count=" + std::to_string(snap->metrics.tick_count) + "\n";
+        payload += "snapshot_version=" + std::to_string(snap->snapshot_version) + "\n";
+        payload += "snapshot_timestamp_ms=" + std::to_string(snap->snapshot_timestamp_ms);
+
+        return ControlResponse{.success = true, .payload = std::move(payload)};
     }
 
     static ControlResponse handleHealth(const ControlContext &ctx, const std::string &arg)
@@ -274,7 +279,6 @@ namespace edgenetswitch::control
             j["forwarding_drop_decisions"] = snap->packet.forwarding_drop_decisions;
             j["forwarding_flood_decisions"] = snap->packet.forwarding_flood_decisions;
             j["forwarding_forward_decisions"] = snap->packet.forwarding_forward_decisions;
-
             return makeJsonSuccess(j);
         }
 
@@ -300,11 +304,13 @@ namespace edgenetswitch::control
         payload += "rx_bytes_per_sec=" + std::to_string(snap->packet.rx_bytes_per_sec) + "\n";
         payload +=
             "rx_packets_per_sec_raw=" + std::to_string(snap->packet.rx_packets_per_sec_raw) + "\n";
-        payload += "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw);
-        payload += "terminal_events=" + std::to_string(snap->packet.terminal_events);
-        payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events);
         payload +=
-            "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events);
+            "rx_bytes_per_sec_raw=" + std::to_string(snap->packet.rx_bytes_per_sec_raw) + "\n";
+        payload += "terminal_events=" + std::to_string(snap->packet.terminal_events) + "\n";
+        payload += "duplicate_events=" + std::to_string(snap->packet.duplicate_events) + "\n";
+        payload +=
+            "pending_terminal_events=" + std::to_string(snap->packet.pending_terminal_events) +
+            "\n";
         payload += "average_processing_latency_ns=" +
                    std::to_string(snap->packet.average_processing_latency_ns) + "\n";
         payload +=
@@ -696,7 +702,7 @@ namespace edgenetswitch::control
             {"status",
              {.name = "status",
               .description = "runtime state and core metrics",
-              .fields = {"state", "uptime_ms", "tick_count"},
+              .fields = {"state", "operational_health", "uptime_ms", "tick_count"},
               .handler = handleStatus}},
 
             {"health",

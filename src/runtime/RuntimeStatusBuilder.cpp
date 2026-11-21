@@ -1,5 +1,6 @@
 #include "RuntimeStatusBuilder.hpp"
 
+#include "edgenetswitch/packet/Packet.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
 #include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/runtime/HealthMonitor.hpp"
@@ -25,6 +26,22 @@ namespace edgenetswitch
         raw_metrics.queue_depth = packetProcessor.queueDepth();
         raw_metrics.queue_capacity = packetProcessor.queueCapacity();
         raw_metrics.queue_high_water_mark = packetProcessor.queueHighWaterMark();
+
+        std::uint64_t queue_overflow_count = 0;
+
+        const auto overflow_it = raw_metrics.drops_by_reason.find(PacketDropReason::QueueOverflow);
+
+        if (overflow_it != raw_metrics.drops_by_reason.end())
+        {
+            queue_overflow_count = overflow_it->second;
+        }
+
+        const bool new_queue_overflow = queue_overflow_count > last_queue_overflow_count_;
+
+        last_queue_overflow_count_ = queue_overflow_count;
+
+        const bool queue_saturated =
+            raw_metrics.queue_capacity > 0 && raw_metrics.queue_depth >= raw_metrics.queue_capacity;
 
         // we compute rate here
         rx_packet_rate_.observe(raw_metrics.rx_packets, now_ms);
@@ -57,9 +74,27 @@ namespace edgenetswitch
             final_metrics.rx_bytes_per_sec_raw = 0;
         }
 
+        const auto health_status = healthMonitor.currentStatus();
+
+        OperationalHealth operational_health = OperationalHealth::Healthy;
+
+        if (state == RuntimeState::Stopping)
+        {
+            operational_health = OperationalHealth::ShuttingDown;
+        }
+        else if (new_queue_overflow || queue_saturated)
+        {
+            operational_health = OperationalHealth::Overloaded;
+        }
+        else if (!health_status.is_alive)
+        {
+            operational_health = OperationalHealth::Degraded;
+        }
+
         return RuntimeStatus{.metrics = telemetry.snapshot(),
-                             .health = healthMonitor.currentStatus(),
+                             .health = health_status,
                              .state = state,
+                             .operational_health = operational_health,
                              .snapshot_timestamp_ms = now_ms,
                              .packet = final_metrics};
     }

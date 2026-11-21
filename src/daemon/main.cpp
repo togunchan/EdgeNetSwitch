@@ -495,6 +495,20 @@ int main(int argc, char *argv[])
             std::this_thread::sleep_for(std::chrono::milliseconds(cfg.daemon.tick_ms));
         }
 
+        runtimeState = RuntimeState::Stopping;
+        Logger::warn("Stop requested. Shutting down...");
+        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
+        {
+            auto status = statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor,
+                                               runtimeState, nowMs());
+            g_snapshotPublisher.publish(status);
+            Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
+                         " operational_health=" +
+                         operationalHealthToString(status.operational_health) +
+                         " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
+                         " tick_count=" + std::to_string(status.metrics.tick_count));
+        }
+
 #ifdef EDGENETSWITCH_DEBUG_READER
         if (debugReaderThread.joinable())
         {
@@ -529,14 +543,6 @@ int main(int argc, char *argv[])
         exportManager.stop();
         Logger::info("[SHUTDOWN] Telemetry export manager stopped");
 
-        runtimeState = RuntimeState::Stopping;
-        Logger::warn("Stop requested. Shutting down...");
-        Logger::info("[SHUTDOWN] Reason: " + std::string(toString(shutdownRequest.reason())));
-        const auto status =
-            statusBuilder.build(telemetry, healthMonitor, packetStats, packetProcessor, runtimeState, nowMs());
-        Logger::info("RuntimeStatus: state=" + stateToString(status.state) +
-                     " uptime_ms=" + std::to_string(status.metrics.uptime_ms) +
-                     " tick_count=" + std::to_string(status.metrics.tick_count));
         bus.publish({MessageType::SystemShutdown, nowMs()});
     }
 

@@ -11,9 +11,11 @@
 #include "edgenetswitch/telemetry/Telemetry.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <thread>
 #include <variant>
 
@@ -25,7 +27,161 @@ namespace
         bool non_null_after_first_publish{true};
         std::uint64_t last_seen_version{0};
     };
+
+    struct StatusBuilderFixture
+    {
+        // Only timeout-specific tests need to depend on elapsed wall-clock time.
+        explicit StatusBuilderFixture(
+            std::uint64_t timeout_ms = std::numeric_limits<std::uint64_t>::max())
+            : telemetry(bus, cfg), health_monitor(bus, timeout_ms), stats(bus), processor(bus)
+        {
+            health_monitor.onHeartbeat();
+        }
+
+        edgenetswitch::RuntimeStatus build(
+            edgenetswitch::RuntimeState state = edgenetswitch::RuntimeState::Running)
+        {
+            return builder.build(telemetry, health_monitor, stats, processor, state, 1000);
+        }
+
+        void publishQueueOverflow(std::uint64_t lifecycle_id)
+        {
+            using namespace edgenetswitch;
+            bus.publish(Message{.type = MessageType::PacketDropped,
+                                .timestamp_ms = 1,
+                                .payload = PacketDropped{.reason = PacketDropReason::QueueOverflow,
+                                                         .timestamp_ms = 1,
+                                                         .lifecycle_id = lifecycle_id}});
+        }
+
+        edgenetswitch::MessagingBus bus;
+        edgenetswitch::core::Config cfg{};
+        edgenetswitch::Telemetry telemetry;
+        edgenetswitch::HealthMonitor health_monitor;
+        edgenetswitch::PacketStats stats;
+        edgenetswitch::PacketProcessor processor;
+        edgenetswitch::RuntimeStatusBuilder builder;
+    };
 } // namespace
+
+TEST_CASE("RuntimeStatusBuilder derives healthy and shutting-down operational health",
+          "[SnapshotPublisher][RuntimeStatusBuilder][OperationalHealth]")
+{
+    using namespace edgenetswitch;
+    StatusBuilderFixture fixture;
+
+    const auto running = fixture.build();
+    REQUIRE(running.state == RuntimeState::Running);
+    REQUIRE(running.health.is_alive);
+    REQUIRE(running.packet.queue_depth < running.packet.queue_capacity);
+    REQUIRE(running.packet.drops_by_reason.empty());
+    CHECK(running.operational_health == OperationalHealth::Healthy);
+
+    const auto stopping = fixture.build(RuntimeState::Stopping);
+    REQUIRE(stopping.state == RuntimeState::Stopping);
+    CHECK(stopping.operational_health == OperationalHealth::ShuttingDown);
+}
+
+TEST_CASE("RuntimeStatusBuilder overload from a new queue overflow clears on the next build",
+          "[SnapshotPublisher][RuntimeStatusBuilder][OperationalHealth]")
+{
+    using namespace edgenetswitch;
+    StatusBuilderFixture fixture;
+    REQUIRE(fixture.build().operational_health == OperationalHealth::Healthy);
+
+    for (std::uint64_t overflow_count = 1; overflow_count <= 2; ++overflow_count)
+    {
+        CAPTURE(overflow_count);
+        fixture.publishQueueOverflow(overflow_count);
+        const auto overloaded = fixture.build();
+        REQUIRE(overloaded.health.is_alive);
+        REQUIRE(overloaded.packet.queue_depth < overloaded.packet.queue_capacity);
+        REQUIRE(overloaded.packet.drops_by_reason.at(PacketDropReason::QueueOverflow) ==
+                overflow_count);
+        CHECK(overloaded.operational_health == OperationalHealth::Overloaded);
+
+        const auto recovered = fixture.build();
+        CHECK(recovered.packet.drops_by_reason == overloaded.packet.drops_by_reason);
+        CHECK(recovered.packet.queue_depth < recovered.packet.queue_capacity);
+        CHECK(recovered.operational_health == OperationalHealth::Healthy);
+    }
+}
+
+TEST_CASE("RuntimeStatusBuilder reports queue saturation until drain with stopping taking priority",
+          "[SnapshotPublisher][RuntimeStatusBuilder][OperationalHealth]")
+{
+    using namespace edgenetswitch;
+    lifecycle_test::Gate worker_gate;
+    StatusBuilderFixture fixture;
+    lifecycle_test::ReleaseGateOnExit release{worker_gate};
+    const auto capacity = fixture.processor.queueCapacity();
+    REQUIRE(capacity > 1);
+
+    fixture.bus.subscribe(MessageType::PacketProcessed,
+                          [&](const Message &) { worker_gate.arriveAndWait(); });
+    Message message{
+        .type = MessageType::PacketRx,
+        .timestamp_ms = 1,
+        .payload = Packet{.lifecycle_id = 1, .payload = "operational health", .timestamp_ms = 1}};
+    fixture.bus.publish(message);
+    REQUIRE(worker_gate.waitForArrival());
+
+    for (std::size_t depth = 1; depth < capacity; ++depth)
+    {
+        ++std::get<Packet>(message.payload).lifecycle_id;
+        fixture.bus.publish(message);
+    }
+    const auto below_capacity = fixture.build();
+    REQUIRE(below_capacity.packet.queue_depth == capacity - 1);
+    REQUIRE(below_capacity.health.is_alive);
+    CHECK(below_capacity.operational_health == OperationalHealth::Healthy);
+
+    ++std::get<Packet>(message.payload).lifecycle_id;
+    fixture.bus.publish(message);
+    const auto saturated = fixture.build();
+    REQUIRE(saturated.packet.queue_depth == saturated.packet.queue_capacity);
+    REQUIRE(saturated.packet.drops_by_reason.empty());
+    CHECK(saturated.operational_health == OperationalHealth::Overloaded);
+    CHECK(fixture.build().operational_health == OperationalHealth::Overloaded);
+    CHECK(fixture.build(RuntimeState::Stopping).operational_health ==
+          OperationalHealth::ShuttingDown);
+
+    worker_gate.release();
+    fixture.processor.stop();
+    const auto drained = fixture.build();
+    REQUIRE(drained.packet.queue_depth == 0);
+    REQUIRE(drained.packet.queue_high_water_mark == capacity);
+    REQUIRE(drained.packet.drops_by_reason.empty());
+    CHECK(drained.operational_health == OperationalHealth::Healthy);
+}
+
+TEST_CASE("RuntimeStatusBuilder prioritizes stopping and overload over heartbeat degradation",
+          "[SnapshotPublisher][RuntimeStatusBuilder][OperationalHealth]")
+{
+    using namespace edgenetswitch;
+    StatusBuilderFixture fixture(100);
+
+    // Match HealthMonitorTests: the monitor owns system_clock, so expiry uses a sleep margin.
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    const auto degraded = fixture.build();
+    REQUIRE_FALSE(degraded.health.is_alive);
+    REQUIRE(degraded.health.silence_duration_ms > 100);
+    REQUIRE(degraded.packet.queue_depth < degraded.packet.queue_capacity);
+    REQUIRE(degraded.packet.drops_by_reason.empty());
+    CHECK(degraded.operational_health == OperationalHealth::Degraded);
+
+    fixture.publishQueueOverflow(1);
+    const auto overloaded = fixture.build();
+    REQUIRE_FALSE(overloaded.health.is_alive);
+    CHECK(overloaded.operational_health == OperationalHealth::Overloaded);
+    CHECK(fixture.build().operational_health == OperationalHealth::Degraded);
+
+    fixture.publishQueueOverflow(2);
+    const auto stopping = fixture.build(RuntimeState::Stopping);
+    REQUIRE_FALSE(stopping.health.is_alive);
+    REQUIRE(stopping.packet.drops_by_reason.at(PacketDropReason::QueueOverflow) == 2);
+    CHECK(stopping.operational_health == OperationalHealth::ShuttingDown);
+}
 
 TEST_CASE("RuntimeStatusBuilder copies packet queue metrics before and after drain",
           "[SnapshotPublisher][RuntimeStatusBuilder]")

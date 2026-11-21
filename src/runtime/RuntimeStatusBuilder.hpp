@@ -24,6 +24,7 @@ namespace edgenetswitch
     private:
         WindowedEwmaRateSmoother rx_packet_rate_;
         WindowedEwmaRateSmoother rx_bytes_rate_;
+        std::uint64_t last_queue_overflow_count_{0};
     };
 
 } // namespace edgenetswitch
