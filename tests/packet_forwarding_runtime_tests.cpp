@@ -4,6 +4,7 @@
 #include "edgenetswitch/network/UdpReceiver.hpp"
 #include "edgenetswitch/packet/LifecycleIdGenerator.hpp"
 #include "edgenetswitch/packet/PacketProcessor.hpp"
+#include "edgenetswitch/packet/PacketStats.hpp"
 #include "edgenetswitch/switching/ForwardingEvent.hpp"
 #include "edgenetswitch/switching/InterfaceRegistry.hpp"
 #include "edgenetswitch/switching/MacAddress.hpp"
@@ -260,15 +261,17 @@ namespace
     struct TransportRuntimeFixture
     {
         explicit TransportRuntimeFixture(InterfaceRegistry registry = makeInterfaces())
-            : interfaces(std::move(registry)), forwarding_engine(mac_table, interfaces),
+            : interfaces(std::move(registry)), forwarding_engine(mac_table, interfaces), stats(bus),
               processor(bus, &forwarding_engine, &transport_manager)
         {
             events.subscribe(bus);
         }
 
-        FakePortBackend &registerBackend(std::uint32_t port_id)
+        FakePortBackend &
+        registerBackend(std::uint32_t port_id,
+                        transport::TransmitStatus status = transport::TransmitStatus::Success)
         {
-            auto backend = std::make_unique<FakePortBackend>(port_id);
+            auto backend = std::make_unique<FakePortBackend>(port_id, status);
             FakePortBackend *raw_backend = backend.get();
             transport_manager.registerBackend(port_id, std::move(backend));
             return *raw_backend;
@@ -280,6 +283,7 @@ namespace
         InterfaceRegistry interfaces;
         SwitchForwardingEngine forwarding_engine;
         transport::TransportManager transport_manager;
+        PacketStats stats;
         PacketProcessor processor;
     };
 
@@ -782,6 +786,94 @@ TEST_CASE("PacketProcessor does not dispatch drop decisions to TransportManager"
     REQUIRE(backend.transmit_count == 0);
     REQUIRE(backend.last_packet_id == 0);
     REQUIRE(backend.last_lifecycle_id == 0);
+}
+
+TEST_CASE("PacketProcessor continues with successful transport after a transmit failure",
+          "[PacketForwardingRuntime][Transport][Recovery]")
+{
+    using transport::TransmitStatus;
+    TransmitStatus status = TransmitStatus::SendFailed;
+    transport::TransportCounters expected{.tx_failed = 1};
+    SECTION("BackendUnavailable")
+    {
+        status = TransmitStatus::BackendUnavailable;
+        expected.backend_unavailable = 1;
+    }
+    SECTION("PortDown")
+    {
+        status = TransmitStatus::PortDown;
+        expected.port_down = 1;
+    }
+    SECTION("InvalidPacket")
+    {
+        status = TransmitStatus::InvalidPacket;
+        expected.invalid_packet = 1;
+    }
+    SECTION("SendFailed")
+    {
+        status = TransmitStatus::SendFailed;
+    }
+
+    unsigned dropped_events = 0;
+    TransportRuntimeFixture fixture;
+    FakePortBackend &failed_backend = fixture.registerBackend(4, status);
+    FakePortBackend &healthy_backend = fixture.registerBackend(3);
+    fixture.bus.subscribe(MessageType::PacketDropped, [&](const Message &) { ++dropped_events; });
+    const auto source = mac("00:11:22:33:44:01");
+    const auto failed_destination = mac("00:11:22:33:44:04");
+    const auto healthy_destination = mac("00:11:22:33:44:03");
+    fixture.mac_table.learn(failed_destination, 4, 1);
+    fixture.mac_table.learn(healthy_destination, 3, 1);
+    const Packet first = makePacket(501, source, failed_destination, 2);
+    const Packet second = makePacket(502, source, healthy_destination, 2);
+
+    publishPacketRx(fixture.bus, first);
+    REQUIRE(fixture.events.waitForProcessedPackets(1));
+    // A transmit failure still completes this packet via PacketProcessed, not PacketDropped.
+    requireCounters(fixture.transport_manager.counters(), expected);
+    const auto after_failure = fixture.stats.snapshotAt(first.timestamp_ms);
+    CHECK(after_failure.ingress_packets == 1);
+    CHECK(after_failure.processed_packets == 1);
+    CHECK(after_failure.terminal_events == 1);
+    CHECK(after_failure.duplicate_events == 0);
+    CHECK(after_failure.pending_terminal_events == 0);
+    CHECK(after_failure.drops_by_reason.empty());
+
+    // Submit recovery work only after the failed transmission's packet has completed.
+    publishPacketRx(fixture.bus, second);
+    REQUIRE(fixture.events.waitForProcessedPackets(2));
+    fixture.processor.stop();
+
+    expected.tx_packets = 1;
+    expected.tx_bytes = second.payload.size();
+    requireCounters(fixture.transport_manager.counters(), expected);
+    REQUIRE(failed_backend.transmitted_packets.size() == 1);
+    REQUIRE(healthy_backend.transmitted_packets.size() == 1);
+    CHECK(failed_backend.transmit_count == 1);
+    CHECK(healthy_backend.transmit_count == 1);
+    requirePacketIntegrity(failed_backend.transmitted_packets.front(), first);
+    requirePacketIntegrity(healthy_backend.transmitted_packets.front(), second);
+
+    const auto events = fixture.events.snapshot();
+    REQUIRE(events.processed_packets.size() == 2);
+    requirePacketIntegrity(events.processed_packets[0], first);
+    requirePacketIntegrity(events.processed_packets[1], second);
+    REQUIRE(events.forwarding_events.size() == 2);
+    CHECK(events.forwarding_events[0].lifecycle_id == first.lifecycle_id);
+    CHECK(events.forwarding_events[1].lifecycle_id == second.lifecycle_id);
+    CHECK(events.forwarding_events[0].action == ForwardingAction::ForwardToPorts);
+    CHECK(events.forwarding_events[1].action == ForwardingAction::ForwardToPorts);
+    CHECK(events.forwarding_events[0].egress_ports == std::vector<std::uint32_t>{4});
+    CHECK(events.forwarding_events[1].egress_ports == std::vector<std::uint32_t>{3});
+    CHECK(dropped_events == 0);
+    CHECK(fixture.processor.queueDepth() == 0);
+    const auto metrics = fixture.stats.snapshotAt(second.timestamp_ms);
+    CHECK(metrics.ingress_packets == 2);
+    CHECK(metrics.processed_packets == 2);
+    CHECK(metrics.terminal_events == 2);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
+    CHECK(metrics.drops_by_reason.empty());
 }
 
 TEST_CASE("TransportManager reports backend unavailable and updates counters",

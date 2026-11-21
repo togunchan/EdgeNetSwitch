@@ -12,6 +12,7 @@
 #include <thread>
 #include <unistd.h>
 #include <variant>
+#include <vector>
 
 using namespace edgenetswitch;
 
@@ -899,6 +900,84 @@ TEST_CASE("processing rejection failure maps to processing error drop reason",
     REQUIRE(processing_error_it != metrics.drops_by_reason.end());
     REQUIRE(processing_error_it->second == packet_count);
     REQUIRE(dropsTotal(metrics) == packet_count);
+}
+
+TEST_CASE("PacketProcessor processes a valid packet after an injected terminal failure",
+          "[PacketPipeline][FailureInjection][Recovery]")
+{
+    using failure::FailureType;
+    FailureType type = FailureType::None;
+    PacketDropReason reason = PacketDropReason::InternalError;
+    SECTION("MalformedPacket")
+    {
+        type = FailureType::MalformedPacket;
+        reason = PacketDropReason::ParseError;
+    }
+    SECTION("ValidationError")
+    {
+        type = FailureType::ValidationError;
+        reason = PacketDropReason::ValidationError;
+    }
+    SECTION("ProcessingRejection")
+    {
+        type = FailureType::ProcessingRejection;
+        reason = PacketDropReason::ProcessingError;
+    }
+
+    MessagingBus bus;
+    PacketStats stats(bus);
+    std::vector<PacketDropped> dropped;
+    std::vector<Packet> processed;
+    lifecycle_test::Gate processed_gate;
+    // Only lifecycle 1 fails. The following packet uses the same, unchanged injector.
+    const failure::FailureConfig config{.enabled = true,
+                                        .lifecycle_rules = {{.lifecycle_id = 1, .type = type}}};
+    PacketProcessor processor(bus, nullptr, nullptr, failure::FailureInjector{config});
+    lifecycle_test::ReleaseGateOnExit release{processed_gate};
+    bus.subscribe(MessageType::PacketDropped, [&](const Message &message)
+                  { dropped.push_back(std::get<PacketDropped>(message.payload)); });
+    bus.subscribe(MessageType::PacketProcessed,
+                  [&](const Message &message)
+                  {
+                      processed.push_back(std::get<Packet>(message.payload));
+                      processed_gate.arriveAndWait();
+                  });
+
+    Packet packet{};
+    packet.id = 9001;
+    packet.lifecycle_id = 1;
+    packet.timestamp_ms = 1;
+    packet.payload = "injected failure followed by recovery";
+    bus.publish(Message{.type = MessageType::PacketRx, .timestamp_ms = 1, .payload = packet});
+    // Terminal injection is synchronous: establish the failure before admitting recovery work.
+    REQUIRE(dropped.size() == 1);
+    CHECK(dropped.front().reason == reason);
+    CHECK(dropped.front().packet_id == packet.id);
+    CHECK(dropped.front().lifecycle_id == packet.lifecycle_id);
+
+    packet.id = 9002;
+    packet.lifecycle_id = 2;
+    bus.publish(Message{.type = MessageType::PacketRx, .timestamp_ms = 1, .payload = packet});
+    // A condition-variable acknowledgement proves the live worker reached PacketProcessed.
+    REQUIRE(processed_gate.waitForArrival());
+    processed_gate.release();
+    processor.stop();
+
+    REQUIRE(dropped.size() == 1);
+    REQUIRE(processed.size() == 1);
+    CHECK(processed.front().id == packet.id);
+    CHECK(processed.front().lifecycle_id == packet.lifecycle_id);
+    CHECK(processed.front().payload == packet.payload);
+    CHECK(processor.queueDepth() == 0);
+    const auto metrics = stats.snapshotAt(1);
+    CHECK(metrics.ingress_packets == 2);
+    CHECK(metrics.processed_packets == 1);
+    CHECK(metrics.terminal_events == 2);
+    CHECK(metrics.duplicate_events == 0);
+    CHECK(metrics.pending_terminal_events == 0);
+    CHECK(dropsTotal(metrics) == 1);
+    REQUIRE(metrics.drops_by_reason.contains(reason));
+    CHECK(metrics.drops_by_reason.at(reason) == 1);
 }
 
 TEST_CASE("each lifecycle produces exactly one terminal event",

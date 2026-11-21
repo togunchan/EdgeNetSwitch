@@ -630,6 +630,7 @@ if(BUILD_TESTING)
         src/network/UdpReceiver.cpp
         src/packet/PacketParser.cpp
         src/packet/PacketProcessor.cpp
+        src/packet/PacketStats.cpp
         src/packet/PacketValidator.cpp
         src/system/fd/FileDescriptor.cpp
         src/system/fd/FdRegistry.cpp
